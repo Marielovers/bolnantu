@@ -9,11 +9,8 @@
     <script src="character_list.js"></script>
     <style>
         @font-face { font-family: 'OneMobilePop'; src: url('ONE Mobile POP.ttf') format('truetype'); }
-        
-        /* [수정됨] body에서 user-select: none 제거 (코드 드래그 가능하도록 수정) */
         body { margin: 0; background: #111; color: white; font-family: 'OneMobilePop', sans-serif; text-align: center; overflow: hidden; }
         
-        /* 모바일 UI에만 선택 방지 적용 */
         .noselect { user-select: none; touch-action: none; -webkit-touch-callout: none; }
         
         #ui { padding: 10px; background: #222; display: flex; justify-content: center; gap: 10px; align-items: center; border-bottom: 2px solid #444; z-index: 10; position: relative; flex-wrap: wrap; }
@@ -22,7 +19,8 @@
         input[type="number"] { width: 50px; text-align: center; }
         #host-id { color: #0f0; letter-spacing: 1px; }
         
-        /* 게임 시작 버튼 (방장 전용) */
+        /* 🌟 초대 링크 복사 버튼 (초기엔 숨김) 🌟 */
+        #btn-copy-link { display: none; background: #3498db; border-color: #2980b9; }
         #btn-start { display: none; background: #ff4757; font-size: 16px; border-color: #ff6b81; animation: pulse 1.5s infinite; }
         @keyframes pulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 71, 87, 0.7); } 70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(255, 71, 87, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 71, 87, 0); } }
         
@@ -36,7 +34,8 @@
         #game-container { position: relative; width: 100%; max-width: 1000px; margin: 0 auto; display: none; }
         canvas { width: 100%; height: auto; aspect-ratio: 10 / 7; background: #000; box-shadow: 0 0 20px rgba(0,0,0,0.8); display: block; }
         
-        #mobile-controls { position: absolute; bottom: 5%; left: 5%; right: 5%; display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; z-index: 100; }
+        /* 🌟 모바일 조이스틱 하단 고정으로 변경 🌟 */
+        #mobile-controls { position: fixed; bottom: 15px; left: 10px; right: 10px; display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; z-index: 1000; }
         #joystick-zone { width: 120px; height: 120px; position: relative; pointer-events: auto; }
         #joystick-base { width: 100%; height: 100%; border-radius: 50%; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.4); position: relative; box-sizing: border-box;}
         #joystick-knob { width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,0.7); position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; }
@@ -66,6 +65,7 @@
         <label>시간(분): <input type="number" id="time-limit" value="3" min="1" max="10"></label>
         <button onclick="startHost()">방장 만들기</button>
         <span style="margin-left: 10px; font-size: 14px;">코드: <span id="host-id">대기중</span></span>
+        <button id="btn-copy-link" onclick="copyInviteLink()">🔗 링크 복사</button>
     </div>
     <div style="border-left: 1px solid #555; padding-left: 10px;">
         <input type="text" id="join-id" placeholder="코드 입력" style="width: 100px;">
@@ -117,6 +117,13 @@ const bgImage = new Image(); bgImage.src = 'bg/bg1.png';
 function parseName(fileName) { return fileName.includes('_') ? fileName.replace('_', '(') + ')' : fileName; }
 
 window.onload = () => {
+    // 🌟 URL 파라미터에서 방 코드 읽어오기 🌟
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomCode = urlParams.get('room');
+    if (roomCode) {
+        document.getElementById('join-id').value = roomCode;
+    }
+
     const grid = document.getElementById('char-grid');
     availableCharacters.forEach(charName => {
         let btn = document.createElement('div'); btn.className = 'char-btn';
@@ -129,7 +136,24 @@ window.onload = () => {
         grid.appendChild(btn);
     });
 };
+
 function startGameUI() { document.getElementById('char-select-screen').style.display = 'none'; document.getElementById('game-container').style.display = 'block'; }
+
+// 🌟 초대 링크 복사 함수 🌟
+function copyInviteLink() {
+    const hostId = document.getElementById('host-id').innerText;
+    if (hostId === '대기중') return;
+    
+    // 현재 URL에 ?room=방코드 를 붙여서 복사
+    const inviteUrl = window.location.origin + window.location.pathname + '?room=' + hostId;
+    
+    // 클립보드 복사 API
+    navigator.clipboard.writeText(inviteUrl).then(() => {
+        alert("초대 링크가 복사되었습니다!\n친구에게 붙여넣기(Ctrl+V) 하세요.");
+    }).catch(err => {
+        alert("복사 실패. 아래 링크를 직접 드래그해서 복사하세요:\n" + inviteUrl);
+    });
+}
 
 /**
  * 2. 입력 처리 (키보드 & 조이스틱)
@@ -171,7 +195,6 @@ const platforms = [
     { x: 300, y: 1000, w: 1000, h: 200 }, { x: 100, y: 700, w: 300, h: 20 },  
     { x: 1200, y: 700, w: 300, h: 20 }, { x: 650, y: 440, w: 300, h: 20 }   
 ];
-// 상태 추가: 'lobby' (대기), 'countdown' (3,2,1), 'playing' (본게임), 'finished' (종료)
 let gameState = { status: 'lobby', timeLeft: 0, countdownTimer: 0, players: {}, items: [], particles: [], impacts: [], shockwaves: [], pillars: [] };
 let myId = null; let isHost = false; let peer = null; let connections = []; let hostConnection = null; let rankingShown = false;
 let screenShake = 0;
@@ -275,19 +298,17 @@ function spawnMeteorLanding(attacker, powerRatio) {
  */
 let guestInputs = {}; function getGuestKeys(id) { return guestInputs[id] || {}; }
 
-// 🌟 시작 버튼 클릭 시 호출 (모두 리셋 후 카운트다운)
 function triggerStartGame() {
     if (isHost && gameState.status === 'lobby') {
         document.getElementById('btn-start').style.display = 'none';
         document.getElementById('time-limit').disabled = true;
         
         gameState.status = 'countdown';
-        gameState.countdownTimer = 240; // 60프레임 * 4초 (3, 2, 1, 시작!)
+        gameState.countdownTimer = 240; 
         
-        // 참가자 모두 리셋 및 흩뿌리기
         for (let id in gameState.players) {
             let p = gameState.players[id];
-            p.x = Math.random() * (MAP_W - 400) + 200; // 랜덤하게 퍼지기
+            p.x = Math.random() * (MAP_W - 400) + 200; 
             p.y = 50; 
             p.vx = 0; p.vy = 0;
             p.damage = 0; p.score = 0;
@@ -295,8 +316,6 @@ function triggerStartGame() {
             p.hitStunTimer = 0; p.attackTimer = 0; p.currentAttack = null;
             p.isUltimate = false; p.ultimateTimer = 0; p.lastAttackerId = null;
         }
-        
-        // 필드 초기화
         gameState.items = []; gameState.particles = []; gameState.impacts = []; gameState.shockwaves = []; gameState.pillars = [];
     }
 }
@@ -304,21 +323,17 @@ function triggerStartGame() {
 function hostLoop() {
     if (!isHost || gameState.status === 'finished') return;
 
-    // 카운트다운 상태 처리
     if (gameState.status === 'countdown') {
         gameState.countdownTimer--;
-        if (gameState.countdownTimer <= 0) {
-            gameState.status = 'playing'; // 카운트다운 끝나면 본 게임 진입
-        }
+        if (gameState.countdownTimer <= 0) gameState.status = 'playing'; 
     }
 
-    // 본 게임 중에만 타이머 감소
     if (gameState.status === 'playing') {
         gameState.timeLeft--;
         if (gameState.timeLeft <= 0) { gameState.status = 'finished'; broadcastState(); return; }
     }
 
-    let canAttack = (gameState.status !== 'countdown'); // 카운트다운 중엔 공격 불가
+    let canAttack = (gameState.status !== 'countdown'); 
 
     for (let id in gameState.players) {
         let p = gameState.players[id];
@@ -415,7 +430,6 @@ function hostLoop() {
 
         if (p.x < -200 || p.x > MAP_W + 200 || p.y < -200 || p.y > MAP_H + 200) {
             spawnDeathEffects(Math.max(0, Math.min(p.x, MAP_W)), Math.max(0, Math.min(p.y, MAP_H)));
-            // 본 게임 중에만 점수가 인정됨
             if (gameState.status === 'playing' && p.lastAttackerId && gameState.players[p.lastAttackerId]) {
                 gameState.players[p.lastAttackerId].score += 1;
             }
@@ -487,7 +501,6 @@ function processAttack(attacker, type) {
                 }
                 spawnHitParticles(target.x + target.width/2 - attacker.dir*20, target.y + target.height/2, baseDmg * 0.5, type);
             } else {
-                // 대기실에서는 데미지와 넉백은 받지만 점수는 리셋됨
                 target.damage += baseDmg; target.lastAttackerId = attacker.id; 
                 let knockbackMult = 1 + (target.damage / 30);
                 
@@ -726,7 +739,7 @@ function render() {
 
     ctx.restore(); 
 
-    // 🌟 카운트다운 애니메이션 렌더링 🌟
+    // 🌟 카운트다운 렌더링 🌟
     if (gameState.status === 'countdown') {
         let timer = gameState.countdownTimer;
         let text = "";
@@ -735,7 +748,7 @@ function render() {
         else if (timer > 60) text = "1";
         else text = "시작!";
         
-        let scale = 1 + ((timer % 60) / 60) * 0.5; // 프레임에 따라 컸다가 작아지는 효과
+        let scale = 1 + ((timer % 60) / 60) * 0.5; 
         
         ctx.save();
         ctx.translate(canvas.width / 2, canvas.height / 2);
@@ -829,10 +842,10 @@ function startHost() {
         document.getElementById('host-id').innerText = id;
         isHost = true; startGameUI();
         
-        // 🌟 호스트가 되면 '게임 시작' 버튼 활성화 🌟
+        document.getElementById('btn-copy-link').style.display = 'inline-block';
         document.getElementById('btn-start').style.display = 'inline-block';
         
-        gameState.status = 'lobby'; // 로비 상태로 시작
+        gameState.status = 'lobby'; 
         gameState.timeLeft = minutes * 60 * 60; 
         gameState.players[myId] = new Player(myId, mySelectedChar); 
         
