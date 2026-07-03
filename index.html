@@ -2,558 +2,848 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>미니미 대난투 P2P</title>
+    <link rel="icon" href="icon.ico" type="image/x-icon">
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <script src="character_list.js"></script>
     <style>
-        body { margin: 0; background: #111; color: white; font-family: 'Malgun Gothic', sans-serif; text-align: center; user-select: none; }
-        canvas { background: #87CEEB; border: 2px solid #fff; margin-top: 10px; box-shadow: 0 0 15px rgba(0,0,0,0.8); display: none; margin-left: auto; margin-right: auto; }
+        @font-face { font-family: 'OneMobilePop'; src: url('ONE Mobile POP.ttf') format('truetype'); }
         
-        #ui { padding: 15px; background: #222; display: flex; justify-content: center; gap: 20px; align-items: center; border-bottom: 2px solid #444; }
-        button, input { padding: 10px 15px; font-size: 14px; cursor: pointer; border-radius: 5px; border: 1px solid #555; background: #333; color: white; font-weight: bold; }
-        button:hover { background: #555; }
-        #host-id { color: #0f0; font-weight: bold; letter-spacing: 1px; font-size: 16px; }
+        /* [수정됨] body에서 user-select: none 제거 (코드 드래그 가능하도록 수정) */
+        body { margin: 0; background: #111; color: white; font-family: 'OneMobilePop', sans-serif; text-align: center; overflow: hidden; }
         
-        /* 캐릭터 선택 UI */
-        #char-select-screen { margin: 20px auto; max-width: 800px; padding: 20px; background: #333; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
-        #char-grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 15px; }
-        .char-btn { width: 80px; height: 80px; border: 3px solid transparent; border-radius: 10px; cursor: pointer; background-size: cover; background-position: center; background-color: #444; transition: 0.2s; }
-        .char-btn:hover { border-color: #aaa; transform: scale(1.05); }
-        .char-btn.selected { border-color: #00ff00; background-color: #555; transform: scale(1.1); box-shadow: 0 0 10px #00ff00; }
+        /* 모바일 UI에만 선택 방지 적용 */
+        .noselect { user-select: none; touch-action: none; -webkit-touch-callout: none; }
         
-        .controls-info { font-size: 13px; color: #ccc; margin-top: 10px; display: none; }
+        #ui { padding: 10px; background: #222; display: flex; justify-content: center; gap: 10px; align-items: center; border-bottom: 2px solid #444; z-index: 10; position: relative; flex-wrap: wrap; }
+        button, input { padding: 8px 12px; font-size: 14px; font-family: 'OneMobilePop', sans-serif; cursor: pointer; border-radius: 5px; border: 1px solid #555; background: #333; color: white; transition: 0.2s; }
+        button:hover { background: #555; box-shadow: 0 0 10px rgba(255,255,255,0.2); }
+        input[type="number"] { width: 50px; text-align: center; }
+        #host-id { color: #0f0; letter-spacing: 1px; }
+        
+        /* 게임 시작 버튼 (방장 전용) */
+        #btn-start { display: none; background: #ff4757; font-size: 16px; border-color: #ff6b81; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 71, 87, 0.7); } 70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(255, 71, 87, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 71, 87, 0); } }
+        
+        #char-select-screen { margin: 20px auto; max-width: 800px; padding: 20px; background: #333; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.5); width: 90%; display: flex; flex-direction: column; align-items: center; }
+        #char-grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 15px; width: 100%; max-height: 55vh; overflow-y: auto; padding: 10px; box-sizing: border-box; }
+        #char-grid::-webkit-scrollbar { width: 8px; } #char-grid::-webkit-scrollbar-track { background: #222; border-radius: 5px; } #char-grid::-webkit-scrollbar-thumb { background: #666; border-radius: 5px; }
+        
+        .char-btn { width: 60px; height: 60px; border: 3px solid transparent; border-radius: 10px; cursor: pointer; background-size: cover; background-position: center; background-color: #444; transition: 0.2s; flex-shrink: 0; }
+        .char-btn.selected { border-color: #00ff00; background-color: #555; transform: scale(1.1); box-shadow: 0 0 15px #00ff00; }
+        
+        #game-container { position: relative; width: 100%; max-width: 1000px; margin: 0 auto; display: none; }
+        canvas { width: 100%; height: auto; aspect-ratio: 10 / 7; background: #000; box-shadow: 0 0 20px rgba(0,0,0,0.8); display: block; }
+        
+        #mobile-controls { position: absolute; bottom: 5%; left: 5%; right: 5%; display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; z-index: 100; }
+        #joystick-zone { width: 120px; height: 120px; position: relative; pointer-events: auto; }
+        #joystick-base { width: 100%; height: 100%; border-radius: 50%; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.4); position: relative; box-sizing: border-box;}
+        #joystick-knob { width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,0.7); position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+        
+        #action-buttons { pointer-events: auto; display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
+        .btn-row { display: flex; gap: 10px; }
+        .action-btn { width: 55px; height: 55px; border-radius: 50%; background: rgba(200,50,50,0.6); color: white; border: 2px solid rgba(255,255,255,0.5); font-size: 15px; display: flex; justify-content: center; align-items: center; box-shadow: 0 4px 6px rgba(0,0,0,0.5); }
+        .action-btn:active { background: rgba(255,100,100,0.8); transform: scale(0.95); }
+        .btn-blue { background: rgba(50,150,255,0.6); }
+        .btn-green { background: rgba(50,200,50,0.6); }
+        .btn-yellow { background: rgba(200,200,50,0.6); }
+        
+        @media (pointer: fine) { #mobile-controls { display: none; } }
+        
+        #ranking-screen { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.9); padding: 30px; border-radius: 15px; border: 3px solid #ffcc00; z-index: 200; width: 80%; max-width: 400px; box-sizing: border-box;}
+        #ranking-screen h1 { color: #ffcc00; margin-top: 0; font-size: 28px; }
+        .rank-table { width: 100%; border-collapse: collapse; margin-top: 20px; color: white; font-size: 18px; }
+        .rank-table th, .rank-table td { padding: 10px; border-bottom: 1px solid #555; }
+        .rank-table th { background: #333; color: #ffcc00; }
+        .rank-table tr:nth-child(1) td { color: #00ff00; font-size: 22px; }
     </style>
 </head>
 <body>
 
 <div id="ui">
     <div>
-        <button onclick="startHost()">방장(Host)으로 시작</button>
-        <span style="margin-left: 10px;">내 방 코드: <span id="host-id">대기 중...</span></span>
+        <label>시간(분): <input type="number" id="time-limit" value="3" min="1" max="10"></label>
+        <button onclick="startHost()">방장 만들기</button>
+        <span style="margin-left: 10px; font-size: 14px;">코드: <span id="host-id">대기중</span></span>
     </div>
-    <div style="border-left: 2px solid #555; padding-left: 20px;">
-        <input type="text" id="join-id" placeholder="방 코드 입력">
-        <button onclick="joinGame()">참가하기(Guest)</button>
+    <div style="border-left: 1px solid #555; padding-left: 10px;">
+        <input type="text" id="join-id" placeholder="코드 입력" style="width: 100px;">
+        <button onclick="joinGame()">참가하기</button>
     </div>
+    <button id="btn-start" onclick="triggerStartGame()">게임 시작!</button>
 </div>
 
-<div id="char-select-screen">
-    <h2>🎮 플레이할 캐릭터를 선택하세요</h2>
+<div id="char-select-screen" class="noselect">
+    <h2 style="font-size: 22px; margin: 0 0 10px 0;">🎮 플레이할 캐릭터 선택</h2>
     <div id="char-grid"></div>
 </div>
 
-<div class="controls-info" id="controls-info">조작: 방향키(이동, 상=점프, 하=방어) / Z(약공격) / X(강공격) / C(필살기)</div>
+<div id="game-container">
+    <canvas id="gameCanvas" width="1000" height="700" class="noselect"></canvas>
+    
+    <div id="mobile-controls" class="noselect">
+        <div id="joystick-zone">
+            <div id="joystick-base"><div id="joystick-knob"></div></div>
+        </div>
+        <div id="action-buttons">
+            <div class="btn-row">
+                <div class="action-btn btn-blue" id="btn-up">점프</div>
+                <div class="action-btn" id="btn-z">약(Z)</div>
+            </div>
+            <div class="btn-row">
+                <div class="action-btn btn-green" id="btn-down">방어</div>
+                <div class="action-btn" id="btn-x">강(X)</div>
+                <div class="action-btn btn-yellow" id="btn-c">궁(C)</div>
+            </div>
+        </div>
+    </div>
+</div>
 
-<canvas id="gameCanvas" width="800" height="600"></canvas>
+<div id="ranking-screen">
+    <h1>🏆 게임 종료! 🏆</h1>
+    <table class="rank-table" id="rank-table-body"></table>
+    <button onclick="location.reload()" style="margin-top:20px; font-family: 'OneMobilePop';">처음으로</button>
+</div>
 
 <script>
 /**
- * 1. 캐릭터 리스트 및 UI 초기화
+ * 1. 기본 설정 및 로딩
  */
 const availableCharacters = typeof characterList !== 'undefined' ? characterList : ['기본캐릭터'];
-const imageCache = {};
-let mySelectedChar = availableCharacters[0]; // 기본 선택
-
-function preloadImage(imageName) {
-    if (!imageCache[imageName]) {
-        let img = new Image();
-        img.src = `minimi/${imageName}.png`;
-        imageCache[imageName] = img;
-    }
-}
-availableCharacters.forEach(name => preloadImage(name));
-
+const imageCache = {}; let mySelectedChar = availableCharacters[0];
+availableCharacters.forEach(name => { let img = new Image(); img.src = `minimi/${name}.png`; imageCache[name] = img; });
+const bgImage = new Image(); bgImage.src = 'bg/bg1.png';
 function parseName(fileName) { return fileName.includes('_') ? fileName.replace('_', '(') + ')' : fileName; }
 
-// 캐릭터 선택 그리드 생성
 window.onload = () => {
     const grid = document.getElementById('char-grid');
     availableCharacters.forEach(charName => {
-        let btn = document.createElement('div');
-        btn.className = 'char-btn';
+        let btn = document.createElement('div'); btn.className = 'char-btn';
         btn.style.backgroundImage = `url('minimi/${charName}.png')`;
-        btn.title = parseName(charName);
         if (charName === mySelectedChar) btn.classList.add('selected');
-        
         btn.onclick = () => {
             document.querySelectorAll('.char-btn').forEach(b => b.classList.remove('selected'));
-            btn.classList.add('selected');
-            mySelectedChar = charName;
+            btn.classList.add('selected'); mySelectedChar = charName;
         };
         grid.appendChild(btn);
     });
 };
-
-function startGameUI() {
-    document.getElementById('char-select-screen').style.display = 'none';
-    document.getElementById('gameCanvas').style.display = 'block';
-    document.getElementById('controls-info').style.display = 'block';
-}
-
+function startGameUI() { document.getElementById('char-select-screen').style.display = 'none'; document.getElementById('game-container').style.display = 'block'; }
 
 /**
- * 2. 맵 설정 (1600x1200) 및 게임 상태
+ * 2. 입력 처리 (키보드 & 조이스틱)
  */
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-const GRAVITY = 0.8;
-const MAX_FALL_SPEED = 15;
-const MAP_W = 1600;
-const MAP_H = 1200;
-
-// 넓어진 맵에 맞춘 발판 배치
-const platforms = [
-    { x: 300, y: 1000, w: 1000, h: 200 }, // 메인 바닥
-    { x: 100, y: 700,  w: 300,  h: 20 },  // 1번 (좌)
-    { x: 1200, y: 700, w: 300,  h: 20 },  // 2번 (우)
-    { x: 650, y: 440,  w: 300,  h: 20 }   // 3번 (중앙)
-];
-
-let gameState = {
-    players: {},
-    items: [],
-    particles: [] // 사망 파티클
-};
-let myId = null;
-let isHost = false;
-let peer = null;
-let connections = [];
-let hostConnection = null;
-
 let keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false, z: false, x: false, c: false };
 window.addEventListener('keydown', e => { if(keys.hasOwnProperty(e.key)) keys[e.key] = true; });
 window.addEventListener('keyup', e => { if(keys.hasOwnProperty(e.key)) keys[e.key] = false; });
 
+const joyBase = document.getElementById('joystick-base'); const joyKnob = document.getElementById('joystick-knob');
+let joyActive = false; let joyCenter = { x: 0, y: 0 };
+joyBase.addEventListener('touchstart', e => {
+    e.preventDefault(); joyActive = true; let rect = joyBase.getBoundingClientRect();
+    joyCenter = { x: rect.left + rect.width/2, y: rect.top + rect.height/2 }; updateJoystick(e.changedTouches[0]);
+});
+joyBase.addEventListener('touchmove', e => { if(joyActive) { e.preventDefault(); updateJoystick(e.changedTouches[0]); } });
+const resetJoystick = (e) => { if(!joyActive) return; e.preventDefault(); joyActive = false; joyKnob.style.transform = `translate(-50%, -50%)`; keys.ArrowLeft = keys.ArrowRight = false; };
+joyBase.addEventListener('touchend', resetJoystick); joyBase.addEventListener('touchcancel', resetJoystick);
+function updateJoystick(touch) {
+    let dx = touch.clientX - joyCenter.x; let dy = touch.clientY - joyCenter.y;
+    let dist = Math.sqrt(dx*dx + dy*dy); let maxR = 40;
+    if(dist > maxR) { dx = (dx/dist)*maxR; dy = (dy/dist)*maxR; }
+    joyKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    keys.ArrowLeft = dx < -15; keys.ArrowRight = dx > 15;
+}
+function bindBtn(id, key) {
+    const btn = document.getElementById(id); btn.addEventListener('touchstart', e => { e.preventDefault(); keys[key] = true; });
+    const resetBtn = e => { e.preventDefault(); keys[key] = false; };
+    btn.addEventListener('touchend', resetBtn); btn.addEventListener('touchcancel', resetBtn);
+}
+bindBtn('btn-up', 'ArrowUp'); bindBtn('btn-down', 'ArrowDown'); bindBtn('btn-z', 'z'); bindBtn('btn-x', 'x'); bindBtn('btn-c', 'c');
+
+
+/**
+ * 3. 게임 상태 정의
+ */
+const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d');
+const GRAVITY = 0.8; const MAX_FALL_SPEED = 15; const MAP_W = 1600; const MAP_H = 1200;
+const platforms = [
+    { x: 300, y: 1000, w: 1000, h: 200 }, { x: 100, y: 700, w: 300, h: 20 },  
+    { x: 1200, y: 700, w: 300, h: 20 }, { x: 650, y: 440, w: 300, h: 20 }   
+];
+// 상태 추가: 'lobby' (대기), 'countdown' (3,2,1), 'playing' (본게임), 'finished' (종료)
+let gameState = { status: 'lobby', timeLeft: 0, countdownTimer: 0, players: {}, items: [], particles: [], impacts: [], shockwaves: [], pillars: [] };
+let myId = null; let isHost = false; let peer = null; let connections = []; let hostConnection = null; let rankingShown = false;
+let screenShake = 0;
+
 class Player {
     constructor(id, imageName) {
-        this.id = id;
-        this.imageName = imageName;
-        this.displayName = parseName(imageName);
-        this.x = MAP_W / 2 + (Math.random() * 200 - 100); 
-        this.y = 200;
-        this.vx = 0; this.vy = 0;
-        this.width = 64; this.height = 64;
-        this.dir = 1; 
-        this.damage = 0;
-        this.blockGauge = 100;
-        this.isBlockBroken = false; // 방어 붕괴 플래그
-        this.jumpCount = 0;
-        this.isGrounded = false;
-        this.isBlocking = false;
-        this.isStunned = false;
-        this.attackTimer = 0;
-        this.currentAttack = null; // 판정을 지연하기 위한 공격 타입 저장
-        this.isGlowing = false;
-        this.isUltimate = false;
-        this.ultimateTimer = 0;
+        this.id = id; this.imageName = imageName; this.displayName = parseName(imageName);
+        this.x = MAP_W / 2 + (Math.random() * 200 - 100); this.y = 200;
+        this.vx = 0; this.vy = 0; this.width = 64; this.height = 64; this.dir = 1; 
+        this.damage = 0; this.score = 0; this.lastAttackerId = null; 
+        this.blockGauge = 100; this.isBlockBroken = false; 
+        this.jumpCount = 0; this.isGrounded = false; this.isBlocking = false;
+        this.hitStunTimer = 0; this.attackTimer = 0; this.currentAttack = null; 
+        this.isGlowing = false; this.isUltimate = false; this.ultimateTimer = 0;
+        this.airLightUsed = false; this.meteorStartY = 0;
     }
 }
 
 /**
- * 3. 방장(Host) 물리 & 논리 업데이트
+ * 4. 이펙트 생성 함수
  */
-let guestInputs = {};
-function getGuestKeys(id) { return guestInputs[id] || {}; }
+function spawnHitParticles(x, y, power, attackType) {
+    let coreColor = 'cyan'; let sparkColor = '#00ffff';
+    if (attackType === 'heavy') { coreColor = 'orange'; sparkColor = '#ffaa00'; }
+    else if (attackType === 'air_light') { coreColor = '#32ff96'; sparkColor = '#aaffaa'; }
 
-function spawnDeathParticles(x, y) {
-    for(let i=0; i<30; i++) {
+    gameState.impacts.push({ x: x, y: y, life: 12, maxLife: 12, size: power * 2.5, type: attackType, color: coreColor });
+    
+    for(let i=0; i<15 + power; i++) {
+        let speed = 15 + Math.random() * 20 * (power/15); let angle = Math.random() * Math.PI * 2;
+        let pType = Math.random() > 0.4 ? 'line' : 'shard';
+        let color = Math.random() > 0.5 ? sparkColor : '#ffffff';
         gameState.particles.push({
-            x: x, y: y,
-            vx: (Math.random() - 0.5) * 20,
-            vy: (Math.random() - 0.5) * 20,
-            life: 60,
-            color: `hsl(${Math.random() * 360}, 100%, 50%)`
+            x: x, y: y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+            life: 15 + Math.random() * 15, maxLife: 30, color: color, size: 3 + Math.random() * 4, type: pType
         });
     }
 }
 
+function spawnGlassShatter(x, y, radius) {
+    gameState.shockwaves.push({ x: x, y: y, radius: radius, life: 15, maxLife: 15, maxRadius: radius + 80, type: 'glass_break' });
+    for(let i=0; i<25; i++) {
+        let speed = 5 + Math.random() * 15; let angle = Math.random() * Math.PI * 2;
+        gameState.particles.push({
+            x: x, y: y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+            life: 20 + Math.random() * 20, maxLife: 40, color: `rgba(0, 255, 255, ${0.6 + Math.random()*0.4})`, 
+            size: 6 + Math.random() * 8, type: 'glass'
+        });
+    }
+}
+
+function spawnDeathEffects(x, y) {
+    for(let i=0; i<80; i++) {
+        let speed = 20 + Math.random() * 35; let angle = Math.random() * Math.PI * 2;
+        gameState.particles.push({
+            x: x, y: y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+            life: 40 + Math.random() * 30, maxLife: 70, color: `hsl(${Math.random() * 360}, 100%, 70%)`, size: 5 + Math.random() * 5, type: 'shard'
+        });
+    }
+    gameState.shockwaves.push({ x: x, y: y, radius: 10, life: 25, maxLife: 25, maxRadius: 500, type: 'death' });
+}
+
+function spawnMeteorLanding(attacker, powerRatio) {
+    let shockX = attacker.x + attacker.width/2; let shockY = attacker.y + attacker.height;
+    gameState.shockwaves.push({ x: shockX, y: shockY, radius: 20, life: 25, maxLife: 25, maxRadius: 400 * powerRatio, type: 'meteor' });
+    gameState.pillars.push({ x: shockX, y: shockY, width: 150 * powerRatio, height: 600 * powerRatio, life: 20, maxLife: 20 });
+    
+    let range = 300 * powerRatio; let baseDmg = 25 * powerRatio; let baseKnockback = 18 * powerRatio;
+    if (attacker.isUltimate) { baseDmg *= 2; baseKnockback *= 1.5; range *= 1.5; }
+    
+    for (let id in gameState.players) {
+        if (id === attacker.id) continue;
+        let target = gameState.players[id];
+        let dx = (target.x + target.width/2) - shockX; let dy = (target.y + target.height) - shockY; 
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        
+        if (dist < range && Math.abs(dy) < 80) { 
+            if (target.isBlocking) {
+                target.blockGauge -= baseDmg * 3; target.vx += Math.sign(dx) * 6 * (target.isUltimate ? 0.25 : 1);
+                if(target.blockGauge <= 0 && !target.isBlockBroken) { 
+                    target.isBlockBroken = true; if(!target.isUltimate) target.hitStunTimer = 40; 
+                    spawnGlassShatter(target.x + target.width/2, target.y + target.height/2, target.width);
+                }
+                spawnHitParticles(target.x + target.width/2, target.y + target.height/2, baseDmg * 0.5, 'heavy');
+            } else {
+                target.damage += baseDmg; target.lastAttackerId = attacker.id;
+                let knockbackMult = 1 + (target.damage / 30);
+                if (target.isUltimate) {
+                    target.vx = Math.sign(dx) * baseKnockback * knockbackMult * 0.25; target.vy = -baseKnockback * knockbackMult * 1.5 * 0.25;
+                } else {
+                    target.vx = Math.sign(dx) * baseKnockback * knockbackMult; target.vy = -baseKnockback * knockbackMult * 1.5; target.hitStunTimer = 35; 
+                }
+                spawnHitParticles(target.x + target.width/2, target.y + target.height/2, baseDmg * knockbackMult, 'heavy');
+            }
+        }
+    }
+}
+
+/**
+ * 5. 방장(Host) 게임 루프 처리
+ */
+let guestInputs = {}; function getGuestKeys(id) { return guestInputs[id] || {}; }
+
+// 🌟 시작 버튼 클릭 시 호출 (모두 리셋 후 카운트다운)
+function triggerStartGame() {
+    if (isHost && gameState.status === 'lobby') {
+        document.getElementById('btn-start').style.display = 'none';
+        document.getElementById('time-limit').disabled = true;
+        
+        gameState.status = 'countdown';
+        gameState.countdownTimer = 240; // 60프레임 * 4초 (3, 2, 1, 시작!)
+        
+        // 참가자 모두 리셋 및 흩뿌리기
+        for (let id in gameState.players) {
+            let p = gameState.players[id];
+            p.x = Math.random() * (MAP_W - 400) + 200; // 랜덤하게 퍼지기
+            p.y = 50; 
+            p.vx = 0; p.vy = 0;
+            p.damage = 0; p.score = 0;
+            p.blockGauge = 100; p.isBlockBroken = false;
+            p.hitStunTimer = 0; p.attackTimer = 0; p.currentAttack = null;
+            p.isUltimate = false; p.ultimateTimer = 0; p.lastAttackerId = null;
+        }
+        
+        // 필드 초기화
+        gameState.items = []; gameState.particles = []; gameState.impacts = []; gameState.shockwaves = []; gameState.pillars = [];
+    }
+}
+
 function hostLoop() {
-    if (!isHost) return;
+    if (!isHost || gameState.status === 'finished') return;
+
+    // 카운트다운 상태 처리
+    if (gameState.status === 'countdown') {
+        gameState.countdownTimer--;
+        if (gameState.countdownTimer <= 0) {
+            gameState.status = 'playing'; // 카운트다운 끝나면 본 게임 진입
+        }
+    }
+
+    // 본 게임 중에만 타이머 감소
+    if (gameState.status === 'playing') {
+        gameState.timeLeft--;
+        if (gameState.timeLeft <= 0) { gameState.status = 'finished'; broadcastState(); return; }
+    }
+
+    let canAttack = (gameState.status !== 'countdown'); // 카운트다운 중엔 공격 불가
 
     for (let id in gameState.players) {
         let p = gameState.players[id];
         let pKeys = (id === myId) ? keys : getGuestKeys(id);
 
-        // 필살기 타이머
         if (p.ultimateTimer > 0) p.ultimateTimer--;
-        if (p.ultimateTimer === 1) {
-            p.isUltimate = false; 
-            p.width /= 2; p.height /= 2;
-        }
+        if (p.ultimateTimer === 1) { p.isUltimate = false; p.width /= 2; p.height /= 2; }
 
-        // --- 방어 붕괴 시스템 ---
-        if (p.isBlockBroken) {
-            p.isBlocking = false;
-            p.blockGauge += 0.5; // 자연회복보다 빠르게 참
-            if (p.blockGauge >= 100) {
-                p.blockGauge = 100;
-                p.isBlockBroken = false;
-            }
+        if (p.hitStunTimer > 0) {
+            p.hitStunTimer--; p.isBlocking = false; p.attackTimer = 0; 
         } else {
-            if (pKeys.ArrowDown && p.blockGauge > 0 && p.isGrounded && p.attackTimer === 0) {
-                p.isBlocking = true;
-                p.blockGauge -= 1; 
-                p.vx = 0;
-                if(p.blockGauge <= 0) {
-                    p.isBlockBroken = true; // 붕괴
-                    p.isStunned = true;     // 스턴
-                }
+            if (p.isBlockBroken) {
+                p.isBlocking = false; p.blockGauge += 0.5; 
+                if (p.blockGauge >= 100) { p.blockGauge = 100; p.isBlockBroken = false; }
             } else {
-                p.isBlocking = false;
-                p.blockGauge = Math.min(100, p.blockGauge + 0.2); 
+                if (canAttack && pKeys.ArrowDown && p.blockGauge > 0 && p.isGrounded && p.attackTimer === 0) {
+                    p.isBlocking = true; p.blockGauge -= 1.5; p.vx = 0;
+                    if(p.blockGauge <= 0 && !p.isBlockBroken) { 
+                        p.isBlockBroken = true; if(!p.isUltimate) p.hitStunTimer = 40; 
+                        spawnGlassShatter(p.x + p.width/2, p.y + p.height/2, p.width);
+                    }
+                } else {
+                    p.isBlocking = false; p.blockGauge = Math.min(100, p.blockGauge + 0.2); 
+                }
+            }
+
+            if (p.attackTimer === 0 && !p.isBlocking) {
+                if (pKeys.ArrowLeft) { p.vx = -6.5; p.dir = -1; }
+                else if (pKeys.ArrowRight) { p.vx = 6.5; p.dir = 1; }
+                else { p.vx *= 0.8; } 
+            } else { p.vx *= 0.95; }
+
+            if (pKeys.ArrowUp && p.jumpCount < 2 && p.attackTimer === 0 && !p.isBlocking) {
+                p.vy = (p.jumpCount === 0) ? -22 : -14; 
+                p.jumpCount++; p.airLightUsed = false; pKeys.ArrowUp = false; 
+            }
+
+            if (p.attackTimer > 0) {
+                p.attackTimer--;
+                if (p.currentAttack === 'heavy' && p.attackTimer === 25) processAttack(p, 'heavy');
+                if (p.currentAttack === 'light' && p.attackTimer === 5) processAttack(p, 'light');
+                if (p.currentAttack === 'air_light' && p.attackTimer === 6) processAttack(p, 'air_light'); 
+                
+                if (p.currentAttack === 'air_heavy_startup' && p.attackTimer === 0) {
+                    p.currentAttack = 'air_heavy'; p.attackTimer = 999; p.vy = 30;
+                }
+                if (p.currentAttack === 'air_heavy') { p.vy = 35; if(p.attackTimer <= 1) p.attackTimer = 999; }
+                if (p.currentAttack === 'air_heavy_landing') { p.vx = 0; }
+                
+            } else if (!p.isBlocking && canAttack) {
+                if (pKeys.z) {
+                    if (p.isGrounded) { 
+                        p.attackTimer = 18; p.currentAttack = 'light'; p.vx += p.dir * 5; 
+                    } else if (!p.airLightUsed) { 
+                        p.attackTimer = 12; p.currentAttack = 'air_light'; p.airLightUsed = true;
+                    }
+                } else if (pKeys.x) { 
+                    if (p.isGrounded) { 
+                        p.attackTimer = 45; p.currentAttack = 'heavy'; 
+                    } else { 
+                        p.attackTimer = 15; p.currentAttack = 'air_heavy_startup'; p.vy = 0; p.vx = 0; p.meteorStartY = p.y; 
+                    }
+                } else if (pKeys.c && p.isGlowing) { 
+                    p.isGlowing = false; p.isUltimate = true; p.ultimateTimer = 500;
+                    p.width *= 2; p.height *= 2; p.y -= p.height/2; 
+                    spawnDeathEffects(p.x + p.width/2, p.y + p.height/2);
+                }
             }
         }
 
-        // --- 이동 ---
-        if (!p.isStunned && p.attackTimer === 0 && !p.isBlocking) {
-            if (pKeys.ArrowLeft) { p.vx = -6; p.dir = -1; }
-            else if (pKeys.ArrowRight) { p.vx = 6; p.dir = 1; }
-            else { p.vx *= 0.8; } 
-        } else {
-            p.vx *= 0.95; 
-        }
-
-        // --- 점프 ---
-        if (pKeys.ArrowUp && p.jumpCount < 2 && p.attackTimer === 0 && !p.isBlocking && !p.isStunned) {
-            p.vy = (p.jumpCount === 0) ? -22 : -14;
-            p.jumpCount++;
-            pKeys.ArrowUp = false; 
-        }
-
-        // --- 공격 및 타격 판정 지연 ---
-        if (p.attackTimer > 0) {
-            p.attackTimer--;
-            // [핵심] 애니메이션이 거의 끝나는 프레임(5)에 타격 판정 발생
-            if (p.attackTimer === 5 && p.currentAttack) {
-                processAttack(p, p.currentAttack);
-                p.currentAttack = null;
-            }
-        } else if (!p.isBlocking && !p.isStunned) {
-            if (pKeys.z) {
-                p.attackTimer = 20; 
-                p.currentAttack = 'light';
-                p.vx += p.dir * 4; 
-            } else if (pKeys.x) { 
-                p.attackTimer = 35;
-                p.currentAttack = 'heavy';
-                if (!p.isGrounded) p.vy = 12; 
-            } else if (pKeys.c && p.isGlowing) { 
-                p.isGlowing = false;
-                p.isUltimate = true;
-                p.ultimateTimer = 400; // 필살기 지속 시간
-                p.width *= 2; p.height *= 2;
-                p.y -= p.height/2; 
-                spawnDeathParticles(p.x + p.width/2, p.y + p.height/2); // 변신 이펙트
-            }
-        }
-
-        // 물리 충돌
-        let oldY = p.y;
-        p.vy += GRAVITY;
-        if (p.vy > MAX_FALL_SPEED && !pKeys.x) p.vy = MAX_FALL_SPEED;
-        p.x += p.vx;
-        p.y += p.vy;
-
-        p.isGrounded = false;
+        let oldY = p.y; let oldGrounded = p.isGrounded;
+        if (p.currentAttack === 'air_heavy') p.vy = 35; 
+        else if (p.currentAttack === 'air_heavy_startup') p.vy = 0; 
+        else p.vy += GRAVITY;
+        if (p.vy > MAX_FALL_SPEED && p.currentAttack !== 'air_heavy') p.vy = MAX_FALL_SPEED;
+        
+        p.x += p.vx; p.y += p.vy; p.isGrounded = false;
         
         for (let plat of platforms) {
             if (p.x + p.width > plat.x && p.x < plat.x + plat.w) {
                 if (p.vy >= 0 && oldY + p.height <= plat.y + 15 && p.y + p.height >= plat.y) {
-                    p.y = plat.y - p.height;
-                    p.vy = 0;
-                    p.isGrounded = true;
-                    p.jumpCount = 0;
-                    p.isStunned = false;
-                    break;
+                    p.y = plat.y - p.height; p.vy = 0; 
+                    p.isGrounded = true; p.jumpCount = 0; p.airLightUsed = false; break;
                 }
             }
         }
+        
+        if (!oldGrounded && p.isGrounded && p.currentAttack === 'air_heavy') {
+            p.currentAttack = 'air_heavy_landing'; p.attackTimer = 60; 
+            let fallDist = Math.max(0, p.y - p.meteorStartY);
+            let powerRatio = Math.max(0.3, Math.min(1.0, fallDist / (MAP_H / 2)));
+            spawnMeteorLanding(p, powerRatio);
+        }
 
-        // --- 장외 사망 ---
         if (p.x < -200 || p.x > MAP_W + 200 || p.y < -200 || p.y > MAP_H + 200) {
-            spawnDeathParticles(Math.max(0, Math.min(p.x, MAP_W)), Math.max(0, Math.min(p.y, MAP_H)));
-            p.x = MAP_W / 2; p.y = 100; p.vx = 0; p.vy = 0;
-            p.damage = 0; 
+            spawnDeathEffects(Math.max(0, Math.min(p.x, MAP_W)), Math.max(0, Math.min(p.y, MAP_H)));
+            // 본 게임 중에만 점수가 인정됨
+            if (gameState.status === 'playing' && p.lastAttackerId && gameState.players[p.lastAttackerId]) {
+                gameState.players[p.lastAttackerId].score += 1;
+            }
+            p.x = MAP_W / 2 + (Math.random() * 200 - 100); p.y = 100; p.vx = 0; p.vy = 0; p.damage = 0; p.lastAttackerId = null; 
         }
     }
 
-    // 아이템 생성 (확률 대폭 낮춤)
-    if (Math.random() < 0.0005) {
+    if (gameState.status === 'playing' && Math.random() < 0.0003) {
         gameState.items.push({ x: Math.random() * (MAP_W - 200) + 100, y: -50, vy: 3 });
     }
-    
     for (let i = gameState.items.length - 1; i >= 0; i--) {
-        let item = gameState.items[i];
-        let oldItemY = item.y;
-        item.y += item.vy;
-        
+        let item = gameState.items[i]; let oldItemY = item.y; item.y += item.vy;
         for (let plat of platforms) {
             if (item.x > plat.x && item.x < plat.x + plat.w) {
-                if (oldItemY + 10 <= plat.y && item.y + 10 >= plat.y) {
-                    item.y = plat.y - 10;
-                    item.vy = 0; 
-                }
+                if (oldItemY + 10 <= plat.y && item.y + 10 >= plat.y) { item.y = plat.y - 10; item.vy = 0; }
             }
         }
-        
         for (let id in gameState.players) {
             let p = gameState.players[id];
             if (Math.abs((p.x + p.width/2) - item.x) < p.width && Math.abs((p.y + p.height/2) - item.y) < p.height) {
-                p.isGlowing = true; 
-                gameState.items.splice(i, 1);
-                break;
+                p.isGlowing = true; gameState.items.splice(i, 1); break;
             }
         }
         if (item && item.y > MAP_H + 100) gameState.items.splice(i, 1); 
     }
 
-    // 파티클 업데이트
     for (let i = gameState.particles.length - 1; i >= 0; i--) {
-        let pt = gameState.particles[i];
-        pt.x += pt.vx; pt.y += pt.vy;
-        pt.vy += 0.5; // 중력
-        pt.life--;
+        let pt = gameState.particles[i]; pt.x += pt.vx; pt.y += pt.vy; pt.vy += 0.5; pt.vx *= 0.95; pt.vy *= 0.95; pt.life--;
         if(pt.life <= 0) gameState.particles.splice(i, 1);
     }
-
+    for (let i = gameState.impacts.length - 1; i >= 0; i--) {
+        gameState.impacts[i].life--; if(gameState.impacts[i].life <= 0) gameState.impacts.splice(i, 1);
+    }
+    for (let i = gameState.shockwaves.length - 1; i >= 0; i--) {
+        let sw = gameState.shockwaves[i]; sw.radius += (sw.maxRadius - sw.radius) * 0.2; sw.life--;
+        if(sw.life <= 0) gameState.shockwaves.splice(i, 1);
+    }
+    for (let i = gameState.pillars.length - 1; i >= 0; i--) {
+        gameState.pillars[i].life--; if(gameState.pillars[i].life <= 0) gameState.pillars.splice(i, 1);
+    }
     broadcastState();
 }
 
 function processAttack(attacker, type) {
-    let range = (type === 'heavy') ? attacker.width * 1.5 : attacker.width * 1.2;
-    let baseDmg = (type === 'heavy') ? 14 : 5;
-    let baseKnockback = (type === 'heavy') ? 10 : 4;
+    let range, baseDmg, baseKnockback;
+    if (type === 'heavy') { range = attacker.width * 1.5; baseDmg = 16; baseKnockback = 12; }
+    else if (type === 'light') { range = attacker.width * 1.2; baseDmg = 5; baseKnockback = 4; }
+    else if (type === 'air_light') { range = attacker.width * 1.5; baseDmg = 8; baseKnockback = 6; } 
     
     if (attacker.isUltimate) { baseDmg *= 2; baseKnockback *= 1.5; }
 
     for (let id in gameState.players) {
         if (id === attacker.id) continue;
         let target = gameState.players[id];
-        
         let dx = (target.x + target.width/2) - (attacker.x + attacker.width/2);
         let dy = (target.y + target.height/2) - (attacker.y + attacker.height/2);
         let dist = Math.sqrt(dx*dx + dy*dy);
         
-        if (dist < range && (dx * attacker.dir > 0 || range > 80)) { 
+        let isHit = dist < range && (dx * attacker.dir > 0 || range > 80 || type === 'air_light');
+        
+        if (isHit) { 
             if (target.isBlocking) {
-                target.blockGauge -= baseDmg * 2.5; 
-                target.vx += attacker.dir * 4; 
-                if(target.blockGauge <= 0) {
-                    target.isBlockBroken = true;
-                    target.isStunned = true;
+                target.blockGauge -= baseDmg * 3; 
+                let pushX = attacker.dir * 4 * (target.isUltimate ? 0.25 : 1);
+                target.vx += pushX; 
+                if(target.blockGauge <= 0 && !target.isBlockBroken) { 
+                    target.isBlockBroken = true; if(!target.isUltimate) target.hitStunTimer = 40; 
+                    spawnGlassShatter(target.x + target.width/2, target.y + target.height/2, target.width);
                 }
+                spawnHitParticles(target.x + target.width/2 - attacker.dir*20, target.y + target.height/2, baseDmg * 0.5, type);
             } else {
-                target.damage += baseDmg;
-                let knockbackMult = 1 + (target.damage / 30); // 넉백 증폭률
-                target.vx = attacker.dir * baseKnockback * knockbackMult;
-                target.vy = -baseKnockback * knockbackMult * 0.7; 
-                target.isStunned = true;
+                // 대기실에서는 데미지와 넉백은 받지만 점수는 리셋됨
+                target.damage += baseDmg; target.lastAttackerId = attacker.id; 
+                let knockbackMult = 1 + (target.damage / 30);
                 
-                if(type === 'heavy' && !attacker.isGrounded) target.vy = baseKnockback * knockbackMult; 
+                let finalVx = Math.sign(dx || attacker.dir) * baseKnockback * knockbackMult;
+                let finalVy = -baseKnockback * knockbackMult * 0.7; 
                 
-                // 타격 이펙트 (파티클 소량)
-                for(let i=0; i<5; i++) gameState.particles.push({x: target.x+target.width/2, y: target.y+target.height/2, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, life: 15, color: 'white'});
+                if(type === 'heavy' && !attacker.isGrounded) finalVy = baseKnockback * knockbackMult; 
+                if(type === 'air_light') finalVy = -baseKnockback * knockbackMult * 1.2; 
+
+                if (target.isUltimate) {
+                    target.vx = finalVx * 0.25; target.vy = finalVy * 0.25; 
+                } else {
+                    target.vx = finalVx; target.vy = finalVy;
+                    target.hitStunTimer = (type === 'heavy') ? 35 : 25; 
+                }
+                spawnHitParticles(target.x + target.width/2, target.y + target.height/2, baseDmg * knockbackMult, type);
             }
         }
     }
 }
 
 /**
- * 4. 렌더링 (카메라 스크롤 적용)
+ * 6. 렌더링
  */
 function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (gameState.status === 'finished') { if (!rankingShown) showRankingScreen(); return; }
+
+    gameState.impacts.forEach(imp => { if(imp.life === imp.maxLife) screenShake += imp.size * 0.5; });
+    gameState.shockwaves.forEach(sw => { if(sw.life === sw.maxLife) screenShake += sw.maxRadius * 0.05; });
     
-    // 카메라 좌표 계산 (내 캐릭터 중심)
-    let camX = 0, camY = 0;
-    let myPlayer = gameState.players[myId];
+    let camX = 0, camY = 0; let myPlayer = gameState.players[myId];
     if (myPlayer) {
-        camX = myPlayer.x + myPlayer.width / 2 - canvas.width / 2;
-        camY = myPlayer.y + myPlayer.height / 2 - canvas.height / 2;
-        // 맵 경계선 카메라 클램핑
-        camX = Math.max(0, Math.min(camX, MAP_W - canvas.width));
-        camY = Math.max(0, Math.min(camY, MAP_H - canvas.height));
+        camX = myPlayer.x + myPlayer.width / 2 - canvas.width / 2; camY = myPlayer.y + myPlayer.height / 2 - canvas.height / 2;
+        if (myPlayer.currentAttack === 'air_heavy_landing' && myPlayer.attackTimer > 40) {
+            let shake = (myPlayer.attackTimer - 40) / 2; camX += (Math.random()-0.5)*shake; camY += (Math.random()-0.5)*shake;
+        }
+        if (screenShake > 0.5) {
+            camX += (Math.random()-0.5) * screenShake; camY += (Math.random()-0.5) * screenShake; screenShake *= 0.85;
+        }
+        camX = Math.max(0, Math.min(camX, MAP_W - canvas.width)); camY = Math.max(0, Math.min(camY, MAP_H - canvas.height));
     }
 
-    ctx.save();
-    ctx.translate(-camX, -camY); // --- 월드 렌더링 시작 ---
+    ctx.save(); ctx.translate(-camX, -camY); 
     
-    // 배경 (구역을 알 수 있게 은은한 그리드)
-    ctx.fillStyle = '#223';
-    ctx.fillRect(0, 0, MAP_W, MAP_H);
-    ctx.strokeStyle = '#334';
-    for(let i=0; i<MAP_W; i+=200) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,MAP_H); ctx.stroke(); }
+    if (bgImage.complete) ctx.drawImage(bgImage, 0, 0, MAP_W, MAP_H);
+    else { ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, MAP_W, MAP_H); }
 
     platforms.forEach(plat => {
-        ctx.fillStyle = '#654321';
-        ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
-        ctx.fillStyle = '#2E8B57';
-        ctx.fillRect(plat.x, plat.y, plat.w, 15);
+        ctx.fillStyle = '#2f3542'; ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+        ctx.fillStyle = '#2ed573'; ctx.fillRect(plat.x, plat.y, plat.w, 15);
     });
 
-    // 화려한 필살기 아이템 그리기
+    gameState.pillars.forEach(pil => {
+        let ratio = pil.life / pil.maxLife;
+        let grd = ctx.createLinearGradient(0, pil.y - pil.height, 0, pil.y);
+        grd.addColorStop(0, `rgba(255, 255, 255, 0)`); grd.addColorStop(1, `rgba(255, 150, 50, ${ratio * 0.8})`);
+        ctx.fillStyle = grd; ctx.fillRect(pil.x - pil.width/2 * ratio, pil.y - pil.height, pil.width * ratio, pil.height);
+    });
+
     gameState.items.forEach(item => {
         let time = Date.now() / 100;
-        ctx.save();
-        ctx.translate(item.x, item.y);
-        ctx.rotate(time * 0.05);
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = `hsl(${time * 10 % 360}, 100%, 50%)`;
-        ctx.fillStyle = "white";
-        // 별 모양 그리기
-        ctx.beginPath();
+        ctx.save(); ctx.translate(item.x, item.y); ctx.rotate(time * 0.05);
+        ctx.shadowBlur = 40; ctx.shadowColor = `hsl(${time * 15 % 360}, 100%, 60%)`;
+        ctx.fillStyle = "white"; ctx.beginPath();
         for(let i=0; i<5; i++) {
-            ctx.lineTo(Math.cos((18+i*72)*Math.PI/180)*20, -Math.sin((18+i*72)*Math.PI/180)*20);
-            ctx.lineTo(Math.cos((54+i*72)*Math.PI/180)*8, -Math.sin((54+i*72)*Math.PI/180)*8);
+            ctx.lineTo(Math.cos((18+i*72)*Math.PI/180)*25, -Math.sin((18+i*72)*Math.PI/180)*25);
+            ctx.lineTo(Math.cos((54+i*72)*Math.PI/180)*10, -Math.sin((54+i*72)*Math.PI/180)*10);
         }
-        ctx.closePath(); ctx.fill();
-        ctx.restore();
+        ctx.closePath(); ctx.fill(); ctx.restore();
     });
 
     for (let id in gameState.players) {
-        let p = gameState.players[id];
-        let img = imageCache[p.imageName];
-        
-        if (img && img.complete && img.naturalWidth > 0 && !p.isUltimate) {
-            p.width = img.naturalWidth;
-            p.height = img.naturalHeight;
-        }
+        let p = gameState.players[id]; let img = imageCache[p.imageName];
+        if (img && img.complete && img.naturalWidth > 0 && !p.isUltimate) { p.width = img.naturalWidth; p.height = img.naturalHeight; }
 
         let bobbing = 0;
-        if (Math.abs(p.vx) > 0.5 && p.isGrounded && !p.isBlocking) bobbing = Math.sin(Date.now() / 60) * 6; 
+        if (Math.abs(p.vx) > 0.5 && p.isGrounded && !p.isBlocking && p.hitStunTimer === 0) bobbing = Math.sin(Date.now() / 60) * 6; 
 
-        ctx.save();
-        ctx.translate(p.x + p.width/2, p.y + p.height/2 + bobbing);
+        ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2 + bobbing);
         
-        // 공격 모션 분기 처리
+        if (p.hitStunTimer > 0) { ctx.translate((Math.random()-0.5)*8, (Math.random()-0.5)*8); }
+
         if (p.attackTimer > 0) {
             if (p.currentAttack === 'heavy') {
-                ctx.rotate((35 - p.attackTimer) * 0.3 * p.dir); // 크게 한바퀴
-            } else if (p.currentAttack === 'light') {
-                ctx.rotate(Math.sin((20 - p.attackTimer) / 20 * Math.PI) * 0.6 * p.dir); // 끄덕
+                if (p.attackTimer > 25) { ctx.rotate(-((45 - p.attackTimer) / 20) * 0.5 * p.dir); } 
+                else if (p.attackTimer > 15) { ctx.rotate((-0.5 + ((25 - p.attackTimer) / 10) * 2.5) * p.dir); } 
+                else { ctx.rotate((2.0 * (p.attackTimer / 15)) * p.dir); } 
             }
+            else if (p.currentAttack === 'light') { ctx.rotate(Math.sin((18 - p.attackTimer) / 18 * Math.PI) * 0.6 * p.dir); }
+            else if (p.currentAttack === 'air_light') {
+                let prog = (12 - p.attackTimer) / 12; ctx.rotate(Math.PI * 2 * prog * p.dir); 
+            }
+            else if (p.currentAttack === 'air_heavy_startup') { ctx.rotate(-Math.PI/4 * ((15 - p.attackTimer) / 15) * p.dir); }
+            else if (p.currentAttack === 'air_heavy') { ctx.rotate(Math.PI/2 * p.dir); }
+            else if (p.currentAttack === 'air_heavy_landing') { ctx.scale(1.3, 0.5); ctx.translate(0, p.height * 0.3); }
         }
         
         ctx.scale(-p.dir, 1); 
 
-        if (p.isGlowing || p.isUltimate) {
-            ctx.shadowBlur = 30;
-            ctx.shadowColor = p.isUltimate ? "red" : `hsl(${Date.now()/5 % 360}, 100%, 50%)`;
-        }
-
-        if (img && img.complete) {
-            ctx.drawImage(img, -p.width/2, -p.height/2, p.width, p.height);
-            if (p.isBlocking || p.attackTimer > 0 || p.isStunned) {
-                ctx.globalCompositeOperation = 'source-atop'; 
-                ctx.fillStyle = p.isBlocking ? 'rgba(0,150,255,0.4)' : (p.isStunned ? 'rgba(200,200,200,0.6)' : 'rgba(255,0,0,0.3)');
-                ctx.fillRect(-p.width/2, -p.height/2, p.width, p.height);
-                ctx.globalCompositeOperation = 'source-over';
+        if (p.isUltimate) { 
+            let pulse = Math.sin(Date.now() / 150); ctx.fillStyle = `rgba(255, 50, 50, ${0.4 + 0.2*pulse})`;
+            ctx.beginPath(); ctx.arc(0, 0, p.width * 0.6 + pulse*10, 0, Math.PI*2); ctx.fill();
+            if(Math.random() < 0.3) {
+                ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 3; ctx.beginPath();
+                ctx.moveTo((Math.random()-0.5)*p.width*1.5, (Math.random()-0.5)*p.height*1.5);
+                ctx.lineTo((Math.random()-0.5)*p.width*1.5, (Math.random()-0.5)*p.height*1.5); ctx.stroke();
             }
-        } else {
-            ctx.fillStyle = 'gray'; ctx.fillRect(-p.width/2, -p.height/2, p.width, p.height);
+            ctx.shadowBlur = 40; ctx.shadowColor = "red"; 
+        } else if (p.isGlowing) { ctx.shadowBlur = 30; ctx.shadowColor = `hsl(${Date.now()/5 % 360}, 100%, 50%)`; }
+
+        if (p.hitStunTimer > 0 && !p.isUltimate && !p.isBlockBroken) {
+            if (p.hitStunTimer % 4 < 2) ctx.globalAlpha = 0.5; 
         }
+        if (img && img.complete) ctx.drawImage(img, -p.width/2, -p.height/2, p.width, p.height);
+        ctx.globalAlpha = 1.0; 
+        
         ctx.restore();
 
-        // 닉네임 및 데미지 (머리 위)
-        ctx.fillStyle = 'white'; ctx.strokeStyle = 'black'; ctx.lineWidth = 3;
-        ctx.font = 'bold 15px "Malgun Gothic"'; ctx.textAlign = 'center';
-        ctx.strokeText(p.displayName, p.x + p.width/2, p.y - 25);
-        ctx.fillText(p.displayName, p.x + p.width/2, p.y - 25);
+        if (p.hitStunTimer > 0 && p.isBlockBroken && !p.isUltimate) {
+            let dizzyTime = Date.now() / 150;
+            ctx.save(); ctx.translate(p.x + p.width/2, p.y - 10);
+            for(let i=0; i<3; i++) {
+                let angle = dizzyTime + (i * Math.PI*2/3);
+                let sx = Math.cos(angle) * p.width * 0.4; let sy = Math.sin(angle) * 5;
+                ctx.beginPath(); ctx.arc(sx, sy, 4, 0, Math.PI*2);
+                ctx.fillStyle = '#ffcc00'; ctx.shadowBlur = 10; ctx.shadowColor = 'yellow'; ctx.fill();
+            }
+            ctx.restore();
+        }
+
+        if (p.currentAttack === 'heavy' && p.attackTimer <= 25 && p.attackTimer > 15) {
+            let prog = (25 - p.attackTimer) / 10;
+            ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.scale(p.dir, 1);
+            ctx.beginPath(); ctx.arc(0, 0, p.width * 1.6, -Math.PI/2, -Math.PI/2 + Math.PI * 1.6 * prog, false);
+            ctx.lineWidth = 40 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(255, 50, 0, ${Math.sin(prog * Math.PI)})`;
+            ctx.shadowBlur = 30; ctx.shadowColor = 'red'; ctx.lineCap = 'round'; ctx.stroke(); 
+            ctx.beginPath(); ctx.arc(0, 0, p.width * 1.4, -Math.PI/2, -Math.PI/2 + Math.PI * 1.4 * prog, false);
+            ctx.lineWidth = 20 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(255, 255, 100, ${Math.sin(prog * Math.PI)})`;
+            ctx.shadowBlur = 10; ctx.shadowColor = 'white'; ctx.stroke(); ctx.restore();
+        } else if (p.currentAttack === 'light' && p.attackTimer < 10) {
+            let atkP = 1 - (p.attackTimer/10);
+            ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.scale(p.dir, 1);
+            ctx.beginPath(); ctx.moveTo(p.width*0.2, 0); ctx.lineTo(p.width*0.4 + 100*atkP, -25 + 50*atkP);
+            ctx.lineTo(p.width*0.5 + 150*atkP, 0); ctx.lineTo(p.width*0.4 + 100*atkP, 25 - 50*atkP); ctx.closePath();
+            let grd = ctx.createLinearGradient(0, 0, p.width*2, 0);
+            grd.addColorStop(0, `rgba(0, 255, 255, 0)`); grd.addColorStop(0.5, `rgba(0, 255, 255, ${1 - atkP})`); grd.addColorStop(1, `rgba(255, 255, 255, ${1 - atkP})`);
+            ctx.fillStyle = grd; ctx.shadowBlur = 20; ctx.shadowColor = 'cyan'; ctx.fill(); 
+            ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(p.width*2 * atkP, 0);
+            ctx.lineWidth = 5 * (1 - atkP); ctx.strokeStyle = `rgba(255, 255, 255, ${1 - atkP})`; ctx.stroke(); ctx.restore();
+        } else if (p.currentAttack === 'air_light' && p.attackTimer < 12) {
+            let prog = (12 - p.attackTimer) / 12;
+            ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.scale(p.dir, 1);
+            ctx.beginPath(); ctx.arc(0, 0, p.width * 1.3, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * prog, false); 
+            ctx.lineWidth = 25 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(50, 255, 150, ${Math.sin(prog * Math.PI)})`;
+            ctx.shadowBlur = 20; ctx.shadowColor = '#32ff96'; ctx.stroke(); 
+            ctx.beginPath(); ctx.arc(0, 0, p.width * 1.1, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * prog, false); 
+            ctx.lineWidth = 10 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(255, 255, 255, ${Math.sin(prog * Math.PI)})`; ctx.stroke(); ctx.restore();
+        } else if (p.currentAttack === 'air_heavy_startup') {
+            ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2);
+            let auraSize = p.width * (1 + Math.random()*0.5);
+            ctx.beginPath(); ctx.arc(0, 0, auraSize, 0, Math.PI*2);
+            ctx.fillStyle = `rgba(255, 100, 0, 0.4)`; ctx.shadowBlur = 30; ctx.shadowColor = 'red'; ctx.fill(); ctx.restore();
+        } else if (p.currentAttack === 'air_heavy') {
+            ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2);
+            ctx.beginPath(); ctx.moveTo(0, p.height/2); ctx.lineTo(-30, -p.height*1.5); ctx.lineTo(30, -p.height*1.5); ctx.closePath();
+            ctx.fillStyle = `rgba(255, 50, 0, ${0.6 + Math.random()*0.4})`; ctx.shadowBlur = 40; ctx.shadowColor = 'red'; ctx.fill(); ctx.restore();
+        }
+
+        if (p.isBlocking) {
+            ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.beginPath();
+            ctx.arc(0, 0, p.width * 0.8, 0, Math.PI * 2);
+            let hue = (p.blockGauge / 100) * 200; let alpha = 0.2 + (p.blockGauge / 100) * 0.2;
+            let grd = ctx.createRadialGradient(0, 0, p.width * 0.5, 0, 0, p.width * 0.8);
+            grd.addColorStop(0, `hsla(${hue}, 100%, 50%, 0)`); grd.addColorStop(1, `hsla(${hue}, 100%, 60%, ${alpha})`);
+            ctx.fillStyle = grd; ctx.fill(); ctx.lineWidth = 3;
+            ctx.strokeStyle = `hsla(${hue}, 100%, 80%, ${alpha + 0.3})`; ctx.shadowBlur = 10; ctx.shadowColor = `hsl(${hue}, 100%, 50%)`; ctx.stroke();
+            ctx.restore();
+        }
+
+        ctx.fillStyle = 'white'; ctx.strokeStyle = 'black'; ctx.lineWidth = 4;
+        ctx.font = '16px "OneMobilePop", sans-serif'; ctx.textAlign = 'center';
+        ctx.strokeText(p.displayName, p.x + p.width/2, p.y - 35); ctx.fillText(p.displayName, p.x + p.width/2, p.y - 35);
         
         ctx.fillStyle = p.damage > 100 ? '#ff3333' : (p.damage > 50 ? '#ffff33' : 'white');
-        ctx.font = 'bold 20px Arial';
-        ctx.strokeText(`${Math.floor(p.damage)}%`, p.x + p.width/2, p.y - 5);
-        ctx.fillText(`${Math.floor(p.damage)}%`, p.x + p.width/2, p.y - 5);
+        ctx.font = '26px "OneMobilePop", sans-serif';
+        ctx.strokeText(`${Math.floor(p.damage)}%`, p.x + p.width/2, p.y - 10); ctx.fillText(`${Math.floor(p.damage)}%`, p.x + p.width/2, p.y - 10);
         
-        // [변경됨] 방어 게이지 바 (발 밑)
-        ctx.fillStyle = 'rgba(0,0,0,0.7)';
-        ctx.fillRect(p.x, p.y + p.height + 10, p.width, 8);
-        ctx.fillStyle = p.isBlockBroken ? '#888' : (p.blockGauge > 30 ? '#00ffff' : '#ff0000'); 
-        ctx.fillRect(p.x, p.y + p.height + 10, p.width * (p.blockGauge / 100), 8);
+        ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(p.x, p.y + p.height + 15, p.width, 8);
+        ctx.fillStyle = p.isBlockBroken ? '#555' : (p.blockGauge > 30 ? '#00ffff' : '#ff0000'); 
+        ctx.fillRect(p.x, p.y + p.height + 15, p.width * (p.blockGauge / 100), 8);
     }
 
-    // 사망 파티클 그리기
     gameState.particles.forEach(pt => {
-        ctx.fillStyle = pt.color;
-        ctx.fillRect(pt.x, pt.y, 8, 8);
+        ctx.beginPath(); 
+        if (pt.type === 'shard') {
+            ctx.moveTo(pt.x, pt.y); ctx.lineTo(pt.x + pt.size, pt.y - pt.size); ctx.lineTo(pt.x + pt.size*1.5, pt.y + pt.size*0.5); ctx.closePath();
+            ctx.fillStyle = pt.color; ctx.fill();
+        } else if (pt.type === 'glass') {
+            ctx.save(); ctx.translate(pt.x, pt.y); ctx.rotate(pt.life * 0.2); 
+            ctx.moveTo(0, -pt.size); ctx.lineTo(pt.size*0.8, pt.size*0.5); ctx.lineTo(-pt.size*0.8, pt.size*0.5); ctx.closePath();
+            ctx.fillStyle = pt.color; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1; ctx.stroke();
+            ctx.restore();
+        } else {
+            ctx.moveTo(pt.x, pt.y); ctx.lineTo(pt.x - pt.vx * 2, pt.y - pt.vy * 2);
+            ctx.strokeStyle = pt.color; ctx.lineWidth = pt.size * (pt.life / pt.maxLife); ctx.lineCap = 'round';
+            ctx.shadowBlur = 15; ctx.shadowColor = pt.color; ctx.stroke(); ctx.shadowBlur = 0; 
+        }
     });
 
-    ctx.restore(); // --- 월드 렌더링 끝, 고정 UI 렌더링 시작 ---
+    gameState.impacts.forEach(imp => {
+        let ratio = imp.life / imp.maxLife; 
+        ctx.save(); ctx.translate(imp.x, imp.y); ctx.rotate(Math.PI / 4 + ratio*0.5); 
+        ctx.fillStyle = `rgba(255, 255, 255, ${ratio})`; 
+        ctx.shadowBlur = 30; ctx.shadowColor = imp.color; 
+        let s = imp.size * ratio * 2.5;
+        ctx.fillRect(-s, -s/6, s*2, s/3); ctx.fillRect(-s/6, -s, s/3, s*2); 
+        ctx.beginPath(); ctx.arc(0, 0, s*0.4, 0, Math.PI*2); ctx.fill(); ctx.restore();
+    });
 
-    // [추가됨] 오프스크린(화면 밖) 적군 화살표 인디케이터
+    gameState.shockwaves.forEach(sw => {
+        let ratio = sw.life / sw.maxLife; 
+        ctx.beginPath(); 
+        if (sw.type === 'meteor') {
+            ctx.ellipse(sw.x, sw.y, sw.radius, sw.radius/3, 0, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255, 150, 0, ${ratio})`; ctx.lineWidth = 25 * ratio;
+        } else if (sw.type === 'glass_break') {
+            ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(0, 255, 255, ${ratio})`; ctx.lineWidth = 15 * ratio;
+        } else {
+            ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(255, 255, 100, ${ratio})`; ctx.lineWidth = 20 * ratio;
+        }
+        ctx.shadowBlur = 40 * ratio; ctx.shadowColor = sw.type === 'meteor' ? 'red' : 'cyan'; ctx.stroke(); ctx.shadowBlur = 0;
+    });
+
+    ctx.restore(); 
+
+    // 🌟 카운트다운 애니메이션 렌더링 🌟
+    if (gameState.status === 'countdown') {
+        let timer = gameState.countdownTimer;
+        let text = "";
+        if (timer > 180) text = "3";
+        else if (timer > 120) text = "2";
+        else if (timer > 60) text = "1";
+        else text = "시작!";
+        
+        let scale = 1 + ((timer % 60) / 60) * 0.5; // 프레임에 따라 컸다가 작아지는 효과
+        
+        ctx.save();
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.scale(scale, scale);
+        ctx.fillStyle = "white"; ctx.strokeStyle = "black"; ctx.lineWidth = 8;
+        ctx.font = '120px "OneMobilePop", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.shadowBlur = 30; ctx.shadowColor = "red";
+        ctx.strokeText(text, 0, 0); ctx.fillText(text, 0, 0);
+        ctx.restore();
+    }
+
+    // UI 레이어 
+    if (gameState.status === 'playing' || gameState.status === 'countdown') {
+        let sec = Math.ceil(gameState.timeLeft / 60);
+        let m = Math.floor(sec / 60); let s = sec % 60;
+        let timeStr = `${m}:${s.toString().padStart(2, '0')}`;
+        
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(canvas.width/2 - 60, 10, 120, 45);
+        ctx.fillStyle = sec <= 10 ? '#ff3333' : 'white'; ctx.font = '28px "OneMobilePop", sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(timeStr, canvas.width/2, 42);
+
+        if (myPlayer) {
+            ctx.fillStyle = 'white'; ctx.strokeStyle = 'black'; ctx.lineWidth = 4;
+            ctx.font = '24px "OneMobilePop", sans-serif'; ctx.textAlign = 'left';
+            ctx.strokeText(`점수(Kill): ${myPlayer.score}`, 20, 40); ctx.fillText(`점수(Kill): ${myPlayer.score}`, 20, 40);
+        }
+    } else if (gameState.status === 'lobby') {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(canvas.width/2 - 120, 10, 240, 45);
+        ctx.fillStyle = 'white'; ctx.font = '24px "OneMobilePop", sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText("대기 중... (준비 완료)", canvas.width/2, 40);
+    }
+
     for (let id in gameState.players) {
         if (id === myId) continue;
         let p = gameState.players[id];
-        let px = p.x + p.width/2 - camX;
-        let py = p.y + p.height/2 - camY;
+        let px = p.x + p.width/2 - camX; let py = p.y + p.height/2 - camY;
 
-        // 화면 영역 밖인지 체크
         if (px < 0 || px > canvas.width || py < 0 || py > canvas.height) {
             let angle = Math.atan2(py - canvas.height/2, px - canvas.width/2);
             let indX = canvas.width/2 + Math.cos(angle) * (canvas.width/2 - 40);
             let indY = canvas.height/2 + Math.sin(angle) * (canvas.height/2 - 40);
-            
-            // 화면 밖으로 안 나가게 제한
-            indX = Math.max(30, Math.min(indX, canvas.width - 30));
-            indY = Math.max(30, Math.min(indY, canvas.height - 30));
+            indX = Math.max(30, Math.min(indX, canvas.width - 30)); indY = Math.max(30, Math.min(indY, canvas.height - 30));
 
-            ctx.save();
-            ctx.translate(indX, indY);
-            // 화살표 그리기
-            ctx.rotate(angle);
-            ctx.fillStyle = 'rgba(255, 50, 50, 0.8)';
-            ctx.beginPath();
-            ctx.moveTo(15, 0); ctx.lineTo(-10, 10); ctx.lineTo(-10, -10);
-            ctx.fill();
+            ctx.save(); ctx.translate(indX, indY); ctx.rotate(angle);
+            ctx.fillStyle = 'rgba(255, 50, 50, 0.9)'; ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(-10, 10); ctx.lineTo(-10, -10); ctx.fill();
             ctx.restore();
             
-            // 닉네임 텍스트
             ctx.fillStyle = 'white'; ctx.strokeStyle = 'black'; ctx.lineWidth = 3;
-            ctx.font = '12px "Malgun Gothic"'; ctx.textAlign = 'center';
-            ctx.strokeText(p.displayName, indX, indY + 25);
-            ctx.fillText(p.displayName, indX, indY + 25);
+            ctx.font = '14px "OneMobilePop", sans-serif'; ctx.textAlign = 'center';
+            ctx.strokeText(p.displayName, indX, indY + 25); ctx.fillText(p.displayName, indX, indY + 25);
         }
     }
 }
 
 /**
- * 5. 통신 및 접속
+ * 7. 랭킹 UI 출력
+ */
+function showRankingScreen() {
+    rankingShown = true;
+    const rankingDiv = document.getElementById('ranking-screen');
+    const tableBody = document.getElementById('rank-table-body');
+    tableBody.innerHTML = '<tr><th>순위</th><th>닉네임</th><th>점수(Kills)</th></tr>';
+    
+    let playersArr = Object.values(gameState.players);
+    playersArr.sort((a, b) => b.score - a.score); 
+    
+    playersArr.forEach((p, index) => {
+        let tr = document.createElement('tr');
+        tr.innerHTML = `<td>${index + 1}위</td><td>${p.displayName}</td><td>${p.score}</td>`;
+        tableBody.appendChild(tr);
+    });
+    
+    rankingDiv.style.display = 'block';
+}
+
+/**
+ * 8. 네트워크 통신 루프
  */
 function gameLoop() {
-    if (isHost) hostLoop();
-    else sendInputToHost();
-    
-    render();
-    requestAnimationFrame(gameLoop);
+    if (isHost) hostLoop(); else sendInputToHost();
+    render(); requestAnimationFrame(gameLoop);
 }
 
-function initPeer() {
-    peer = new Peer();
-    peer.on('open', id => { myId = id; });
-}
+function initPeer() { peer = new Peer(); peer.on('open', id => { myId = id; }); }
 
 function startHost() {
+    let minutes = parseInt(document.getElementById('time-limit').value);
+    if (isNaN(minutes) || minutes < 1) minutes = 3;
     initPeer();
     peer.on('open', id => {
         document.getElementById('host-id').innerText = id;
-        isHost = true;
-        startGameUI();
+        isHost = true; startGameUI();
         
+        // 🌟 호스트가 되면 '게임 시작' 버튼 활성화 🌟
+        document.getElementById('btn-start').style.display = 'inline-block';
+        
+        gameState.status = 'lobby'; // 로비 상태로 시작
+        gameState.timeLeft = minutes * 60 * 60; 
         gameState.players[myId] = new Player(myId, mySelectedChar); 
         
         peer.on('connection', conn => {
             connections.push(conn);
             conn.on('data', data => {
-                if (data.type === 'join') {
-                    // 참가자가 선택한 캐릭터로 생성
-                    gameState.players[conn.peer] = new Player(conn.peer, data.charName); 
-                } else if (data.type === 'input') {
-                    guestInputs[conn.peer] = data.keys;
-                }
+                if (data.type === 'join') gameState.players[conn.peer] = new Player(conn.peer, data.charName); 
+                else if (data.type === 'input') guestInputs[conn.peer] = data.keys;
             });
             conn.on('close', () => { delete gameState.players[conn.peer]; });
         });
-        
         requestAnimationFrame(gameLoop);
     });
 }
@@ -561,33 +851,19 @@ function startHost() {
 function joinGame() {
     let hostId = document.getElementById('join-id').value.trim();
     if (!hostId) return alert("방 코드를 입력하세요.");
-    
     initPeer();
     peer.on('open', id => {
-        isHost = false;
-        hostConnection = peer.connect(hostId);
-        
+        isHost = false; hostConnection = peer.connect(hostId);
         hostConnection.on('open', () => {
-            startGameUI();
-            // 접속 시 내가 선택한 캐릭터 이름을 전달
-            hostConnection.send({ type: 'join', charName: mySelectedChar });
+            startGameUI(); hostConnection.send({ type: 'join', charName: mySelectedChar });
         });
-        
-        hostConnection.on('data', data => {
-            if (data.type === 'state') gameState = data.state;
-        });
-        
+        hostConnection.on('data', data => { if (data.type === 'state') gameState = data.state; });
         requestAnimationFrame(gameLoop);
     });
 }
 
-function broadcastState() {
-    connections.forEach(conn => conn.send({ type: 'state', state: gameState }));
-}
-
-function sendInputToHost() {
-    if (hostConnection && hostConnection.open) hostConnection.send({ type: 'input', keys: keys });
-}
+function broadcastState() { connections.forEach(conn => conn.send({ type: 'state', state: gameState })); }
+function sendInputToHost() { if (hostConnection && hostConnection.open && gameState.status !== 'finished') hostConnection.send({ type: 'input', keys: keys }); }
 </script>
 </body>
 </html>
