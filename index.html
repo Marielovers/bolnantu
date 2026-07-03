@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>미니미 대난투 P2P</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <script src="character_list.js"></script>
+    <style>
+        body { margin: 0; background: #111; color: white; font-family: 'Malgun Gothic', sans-serif; text-align: center; user-select: none; }
+        canvas { background: #87CEEB; border: 2px solid #fff; margin-top: 10px; box-shadow: 0 0 15px rgba(0,0,0,0.8); display: none; margin-left: auto; margin-right: auto; }
+        
+        #ui { padding: 15px; background: #222; display: flex; justify-content: center; gap: 20px; align-items: center; border-bottom: 2px solid #444; }
+        button, input { padding: 10px 15px; font-size: 14px; cursor: pointer; border-radius: 5px; border: 1px solid #555; background: #333; color: white; font-weight: bold; }
+        button:hover { background: #555; }
+        #host-id { color: #0f0; font-weight: bold; letter-spacing: 1px; font-size: 16px; }
+        
+        /* 캐릭터 선택 UI */
+        #char-select-screen { margin: 20px auto; max-width: 800px; padding: 20px; background: #333; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
+        #char-grid { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 15px; }
+        .char-btn { width: 80px; height: 80px; border: 3px solid transparent; border-radius: 10px; cursor: pointer; background-size: cover; background-position: center; background-color: #444; transition: 0.2s; }
+        .char-btn:hover { border-color: #aaa; transform: scale(1.05); }
+        .char-btn.selected { border-color: #00ff00; background-color: #555; transform: scale(1.1); box-shadow: 0 0 10px #00ff00; }
+        
+        .controls-info { font-size: 13px; color: #ccc; margin-top: 10px; display: none; }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <div>
+        <button onclick="startHost()">방장(Host)으로 시작</button>
+        <span style="margin-left: 10px;">내 방 코드: <span id="host-id">대기 중...</span></span>
+    </div>
+    <div style="border-left: 2px solid #555; padding-left: 20px;">
+        <input type="text" id="join-id" placeholder="방 코드 입력">
+        <button onclick="joinGame()">참가하기(Guest)</button>
+    </div>
+</div>
+
+<div id="char-select-screen">
+    <h2>🎮 플레이할 캐릭터를 선택하세요</h2>
+    <div id="char-grid"></div>
+</div>
+
+<div class="controls-info" id="controls-info">조작: 방향키(이동, 상=점프, 하=방어) / Z(약공격) / X(강공격) / C(필살기)</div>
+
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<script>
+/**
+ * 1. 캐릭터 리스트 및 UI 초기화
+ */
+const availableCharacters = typeof characterList !== 'undefined' ? characterList : ['기본캐릭터'];
+const imageCache = {};
+let mySelectedChar = availableCharacters[0]; // 기본 선택
+
+function preloadImage(imageName) {
+    if (!imageCache[imageName]) {
+        let img = new Image();
+        img.src = `minimi/${imageName}.png`;
+        imageCache[imageName] = img;
+    }
+}
+availableCharacters.forEach(name => preloadImage(name));
+
+function parseName(fileName) { return fileName.includes('_') ? fileName.replace('_', '(') + ')' : fileName; }
+
+// 캐릭터 선택 그리드 생성
+window.onload = () => {
+    const grid = document.getElementById('char-grid');
+    availableCharacters.forEach(charName => {
+        let btn = document.createElement('div');
+        btn.className = 'char-btn';
+        btn.style.backgroundImage = `url('minimi/${charName}.png')`;
+        btn.title = parseName(charName);
+        if (charName === mySelectedChar) btn.classList.add('selected');
+        
+        btn.onclick = () => {
+            document.querySelectorAll('.char-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            mySelectedChar = charName;
+        };
+        grid.appendChild(btn);
+    });
+};
+
+function startGameUI() {
+    document.getElementById('char-select-screen').style.display = 'none';
+    document.getElementById('gameCanvas').style.display = 'block';
+    document.getElementById('controls-info').style.display = 'block';
+}
+
+
+/**
+ * 2. 맵 설정 (1600x1200) 및 게임 상태
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const GRAVITY = 0.8;
+const MAX_FALL_SPEED = 15;
+const MAP_W = 1600;
+const MAP_H = 1200;
+
+// 넓어진 맵에 맞춘 발판 배치
+const platforms = [
+    { x: 300, y: 1000, w: 1000, h: 200 }, // 메인 바닥
+    { x: 100, y: 700,  w: 300,  h: 20 },  // 1번 (좌)
+    { x: 1200, y: 700, w: 300,  h: 20 },  // 2번 (우)
+    { x: 650, y: 440,  w: 300,  h: 20 }   // 3번 (중앙)
+];
+
+let gameState = {
+    players: {},
+    items: [],
+    particles: [] // 사망 파티클
+};
+let myId = null;
+let isHost = false;
+let peer = null;
+let connections = [];
+let hostConnection = null;
+
+let keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false, z: false, x: false, c: false };
+window.addEventListener('keydown', e => { if(keys.hasOwnProperty(e.key)) keys[e.key] = true; });
+window.addEventListener('keyup', e => { if(keys.hasOwnProperty(e.key)) keys[e.key] = false; });
+
+class Player {
+    constructor(id, imageName) {
+        this.id = id;
+        this.imageName = imageName;
+        this.displayName = parseName(imageName);
+        this.x = MAP_W / 2 + (Math.random() * 200 - 100); 
+        this.y = 200;
+        this.vx = 0; this.vy = 0;
+        this.width = 64; this.height = 64;
+        this.dir = 1; 
+        this.damage = 0;
+        this.blockGauge = 100;
+        this.isBlockBroken = false; // 방어 붕괴 플래그
+        this.jumpCount = 0;
+        this.isGrounded = false;
+        this.isBlocking = false;
+        this.isStunned = false;
+        this.attackTimer = 0;
+        this.currentAttack = null; // 판정을 지연하기 위한 공격 타입 저장
+        this.isGlowing = false;
+        this.isUltimate = false;
+        this.ultimateTimer = 0;
+    }
+}
+
+/**
+ * 3. 방장(Host) 물리 & 논리 업데이트
+ */
+let guestInputs = {};
+function getGuestKeys(id) { return guestInputs[id] || {}; }
+
+function spawnDeathParticles(x, y) {
+    for(let i=0; i<30; i++) {
+        gameState.particles.push({
+            x: x, y: y,
+            vx: (Math.random() - 0.5) * 20,
+            vy: (Math.random() - 0.5) * 20,
+            life: 60,
+            color: `hsl(${Math.random() * 360}, 100%, 50%)`
+        });
+    }
+}
+
+function hostLoop() {
+    if (!isHost) return;
+
+    for (let id in gameState.players) {
+        let p = gameState.players[id];
+        let pKeys = (id === myId) ? keys : getGuestKeys(id);
+
+        // 필살기 타이머
+        if (p.ultimateTimer > 0) p.ultimateTimer--;
+        if (p.ultimateTimer === 1) {
+            p.isUltimate = false; 
+            p.width /= 2; p.height /= 2;
+        }
+
+        // --- 방어 붕괴 시스템 ---
+        if (p.isBlockBroken) {
+            p.isBlocking = false;
+            p.blockGauge += 0.5; // 자연회복보다 빠르게 참
+            if (p.blockGauge >= 100) {
+                p.blockGauge = 100;
+                p.isBlockBroken = false;
+            }
+        } else {
+            if (pKeys.ArrowDown && p.blockGauge > 0 && p.isGrounded && p.attackTimer === 0) {
+                p.isBlocking = true;
+                p.blockGauge -= 1; 
+                p.vx = 0;
+                if(p.blockGauge <= 0) {
+                    p.isBlockBroken = true; // 붕괴
+                    p.isStunned = true;     // 스턴
+                }
+            } else {
+                p.isBlocking = false;
+                p.blockGauge = Math.min(100, p.blockGauge + 0.2); 
+            }
+        }
+
+        // --- 이동 ---
+        if (!p.isStunned && p.attackTimer === 0 && !p.isBlocking) {
+            if (pKeys.ArrowLeft) { p.vx = -6; p.dir = -1; }
+            else if (pKeys.ArrowRight) { p.vx = 6; p.dir = 1; }
+            else { p.vx *= 0.8; } 
+        } else {
+            p.vx *= 0.95; 
+        }
+
+        // --- 점프 ---
+        if (pKeys.ArrowUp && p.jumpCount < 2 && p.attackTimer === 0 && !p.isBlocking && !p.isStunned) {
+            p.vy = (p.jumpCount === 0) ? -22 : -14;
+            p.jumpCount++;
+            pKeys.ArrowUp = false; 
+        }
+
+        // --- 공격 및 타격 판정 지연 ---
+        if (p.attackTimer > 0) {
+            p.attackTimer--;
+            // [핵심] 애니메이션이 거의 끝나는 프레임(5)에 타격 판정 발생
+            if (p.attackTimer === 5 && p.currentAttack) {
+                processAttack(p, p.currentAttack);
+                p.currentAttack = null;
+            }
+        } else if (!p.isBlocking && !p.isStunned) {
+            if (pKeys.z) {
+                p.attackTimer = 20; 
+                p.currentAttack = 'light';
+                p.vx += p.dir * 4; 
+            } else if (pKeys.x) { 
+                p.attackTimer = 35;
+                p.currentAttack = 'heavy';
+                if (!p.isGrounded) p.vy = 12; 
+            } else if (pKeys.c && p.isGlowing) { 
+                p.isGlowing = false;
+                p.isUltimate = true;
+                p.ultimateTimer = 400; // 필살기 지속 시간
+                p.width *= 2; p.height *= 2;
+                p.y -= p.height/2; 
+                spawnDeathParticles(p.x + p.width/2, p.y + p.height/2); // 변신 이펙트
+            }
+        }
+
+        // 물리 충돌
+        let oldY = p.y;
+        p.vy += GRAVITY;
+        if (p.vy > MAX_FALL_SPEED && !pKeys.x) p.vy = MAX_FALL_SPEED;
+        p.x += p.vx;
+        p.y += p.vy;
+
+        p.isGrounded = false;
+        
+        for (let plat of platforms) {
+            if (p.x + p.width > plat.x && p.x < plat.x + plat.w) {
+                if (p.vy >= 0 && oldY + p.height <= plat.y + 15 && p.y + p.height >= plat.y) {
+                    p.y = plat.y - p.height;
+                    p.vy = 0;
+                    p.isGrounded = true;
+                    p.jumpCount = 0;
+                    p.isStunned = false;
+                    break;
+                }
+            }
+        }
+
+        // --- 장외 사망 ---
+        if (p.x < -200 || p.x > MAP_W + 200 || p.y < -200 || p.y > MAP_H + 200) {
+            spawnDeathParticles(Math.max(0, Math.min(p.x, MAP_W)), Math.max(0, Math.min(p.y, MAP_H)));
+            p.x = MAP_W / 2; p.y = 100; p.vx = 0; p.vy = 0;
+            p.damage = 0; 
+        }
+    }
+
+    // 아이템 생성 (확률 대폭 낮춤)
+    if (Math.random() < 0.0005) {
+        gameState.items.push({ x: Math.random() * (MAP_W - 200) + 100, y: -50, vy: 3 });
+    }
+    
+    for (let i = gameState.items.length - 1; i >= 0; i--) {
+        let item = gameState.items[i];
+        let oldItemY = item.y;
+        item.y += item.vy;
+        
+        for (let plat of platforms) {
+            if (item.x > plat.x && item.x < plat.x + plat.w) {
+                if (oldItemY + 10 <= plat.y && item.y + 10 >= plat.y) {
+                    item.y = plat.y - 10;
+                    item.vy = 0; 
+                }
+            }
+        }
+        
+        for (let id in gameState.players) {
+            let p = gameState.players[id];
+            if (Math.abs((p.x + p.width/2) - item.x) < p.width && Math.abs((p.y + p.height/2) - item.y) < p.height) {
+                p.isGlowing = true; 
+                gameState.items.splice(i, 1);
+                break;
+            }
+        }
+        if (item && item.y > MAP_H + 100) gameState.items.splice(i, 1); 
+    }
+
+    // 파티클 업데이트
+    for (let i = gameState.particles.length - 1; i >= 0; i--) {
+        let pt = gameState.particles[i];
+        pt.x += pt.vx; pt.y += pt.vy;
+        pt.vy += 0.5; // 중력
+        pt.life--;
+        if(pt.life <= 0) gameState.particles.splice(i, 1);
+    }
+
+    broadcastState();
+}
+
+function processAttack(attacker, type) {
+    let range = (type === 'heavy') ? attacker.width * 1.5 : attacker.width * 1.2;
+    let baseDmg = (type === 'heavy') ? 14 : 5;
+    let baseKnockback = (type === 'heavy') ? 10 : 4;
+    
+    if (attacker.isUltimate) { baseDmg *= 2; baseKnockback *= 1.5; }
+
+    for (let id in gameState.players) {
+        if (id === attacker.id) continue;
+        let target = gameState.players[id];
+        
+        let dx = (target.x + target.width/2) - (attacker.x + attacker.width/2);
+        let dy = (target.y + target.height/2) - (attacker.y + attacker.height/2);
+        let dist = Math.sqrt(dx*dx + dy*dy);
+        
+        if (dist < range && (dx * attacker.dir > 0 || range > 80)) { 
+            if (target.isBlocking) {
+                target.blockGauge -= baseDmg * 2.5; 
+                target.vx += attacker.dir * 4; 
+                if(target.blockGauge <= 0) {
+                    target.isBlockBroken = true;
+                    target.isStunned = true;
+                }
+            } else {
+                target.damage += baseDmg;
+                let knockbackMult = 1 + (target.damage / 30); // 넉백 증폭률
+                target.vx = attacker.dir * baseKnockback * knockbackMult;
+                target.vy = -baseKnockback * knockbackMult * 0.7; 
+                target.isStunned = true;
+                
+                if(type === 'heavy' && !attacker.isGrounded) target.vy = baseKnockback * knockbackMult; 
+                
+                // 타격 이펙트 (파티클 소량)
+                for(let i=0; i<5; i++) gameState.particles.push({x: target.x+target.width/2, y: target.y+target.height/2, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, life: 15, color: 'white'});
+            }
+        }
+    }
+}
+
+/**
+ * 4. 렌더링 (카메라 스크롤 적용)
+ */
+function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 카메라 좌표 계산 (내 캐릭터 중심)
+    let camX = 0, camY = 0;
+    let myPlayer = gameState.players[myId];
+    if (myPlayer) {
+        camX = myPlayer.x + myPlayer.width / 2 - canvas.width / 2;
+        camY = myPlayer.y + myPlayer.height / 2 - canvas.height / 2;
+        // 맵 경계선 카메라 클램핑
+        camX = Math.max(0, Math.min(camX, MAP_W - canvas.width));
+        camY = Math.max(0, Math.min(camY, MAP_H - canvas.height));
+    }
+
+    ctx.save();
+    ctx.translate(-camX, -camY); // --- 월드 렌더링 시작 ---
+    
+    // 배경 (구역을 알 수 있게 은은한 그리드)
+    ctx.fillStyle = '#223';
+    ctx.fillRect(0, 0, MAP_W, MAP_H);
+    ctx.strokeStyle = '#334';
+    for(let i=0; i<MAP_W; i+=200) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,MAP_H); ctx.stroke(); }
+
+    platforms.forEach(plat => {
+        ctx.fillStyle = '#654321';
+        ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+        ctx.fillStyle = '#2E8B57';
+        ctx.fillRect(plat.x, plat.y, plat.w, 15);
+    });
+
+    // 화려한 필살기 아이템 그리기
+    gameState.items.forEach(item => {
+        let time = Date.now() / 100;
+        ctx.save();
+        ctx.translate(item.x, item.y);
+        ctx.rotate(time * 0.05);
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = `hsl(${time * 10 % 360}, 100%, 50%)`;
+        ctx.fillStyle = "white";
+        // 별 모양 그리기
+        ctx.beginPath();
+        for(let i=0; i<5; i++) {
+            ctx.lineTo(Math.cos((18+i*72)*Math.PI/180)*20, -Math.sin((18+i*72)*Math.PI/180)*20);
+            ctx.lineTo(Math.cos((54+i*72)*Math.PI/180)*8, -Math.sin((54+i*72)*Math.PI/180)*8);
+        }
+        ctx.closePath(); ctx.fill();
+        ctx.restore();
+    });
+
+    for (let id in gameState.players) {
+        let p = gameState.players[id];
+        let img = imageCache[p.imageName];
+        
+        if (img && img.complete && img.naturalWidth > 0 && !p.isUltimate) {
+            p.width = img.naturalWidth;
+            p.height = img.naturalHeight;
+        }
+
+        let bobbing = 0;
+        if (Math.abs(p.vx) > 0.5 && p.isGrounded && !p.isBlocking) bobbing = Math.sin(Date.now() / 60) * 6; 
+
+        ctx.save();
+        ctx.translate(p.x + p.width/2, p.y + p.height/2 + bobbing);
+        
+        // 공격 모션 분기 처리
+        if (p.attackTimer > 0) {
+            if (p.currentAttack === 'heavy') {
+                ctx.rotate((35 - p.attackTimer) * 0.3 * p.dir); // 크게 한바퀴
+            } else if (p.currentAttack === 'light') {
+                ctx.rotate(Math.sin((20 - p.attackTimer) / 20 * Math.PI) * 0.6 * p.dir); // 끄덕
+            }
+        }
+        
+        ctx.scale(-p.dir, 1); 
+
+        if (p.isGlowing || p.isUltimate) {
+            ctx.shadowBlur = 30;
+            ctx.shadowColor = p.isUltimate ? "red" : `hsl(${Date.now()/5 % 360}, 100%, 50%)`;
+        }
+
+        if (img && img.complete) {
+            ctx.drawImage(img, -p.width/2, -p.height/2, p.width, p.height);
+            if (p.isBlocking || p.attackTimer > 0 || p.isStunned) {
+                ctx.globalCompositeOperation = 'source-atop'; 
+                ctx.fillStyle = p.isBlocking ? 'rgba(0,150,255,0.4)' : (p.isStunned ? 'rgba(200,200,200,0.6)' : 'rgba(255,0,0,0.3)');
+                ctx.fillRect(-p.width/2, -p.height/2, p.width, p.height);
+                ctx.globalCompositeOperation = 'source-over';
+            }
+        } else {
+            ctx.fillStyle = 'gray'; ctx.fillRect(-p.width/2, -p.height/2, p.width, p.height);
+        }
+        ctx.restore();
+
+        // 닉네임 및 데미지 (머리 위)
+        ctx.fillStyle = 'white'; ctx.strokeStyle = 'black'; ctx.lineWidth = 3;
+        ctx.font = 'bold 15px "Malgun Gothic"'; ctx.textAlign = 'center';
+        ctx.strokeText(p.displayName, p.x + p.width/2, p.y - 25);
+        ctx.fillText(p.displayName, p.x + p.width/2, p.y - 25);
+        
+        ctx.fillStyle = p.damage > 100 ? '#ff3333' : (p.damage > 50 ? '#ffff33' : 'white');
+        ctx.font = 'bold 20px Arial';
+        ctx.strokeText(`${Math.floor(p.damage)}%`, p.x + p.width/2, p.y - 5);
+        ctx.fillText(`${Math.floor(p.damage)}%`, p.x + p.width/2, p.y - 5);
+        
+        // [변경됨] 방어 게이지 바 (발 밑)
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(p.x, p.y + p.height + 10, p.width, 8);
+        ctx.fillStyle = p.isBlockBroken ? '#888' : (p.blockGauge > 30 ? '#00ffff' : '#ff0000'); 
+        ctx.fillRect(p.x, p.y + p.height + 10, p.width * (p.blockGauge / 100), 8);
+    }
+
+    // 사망 파티클 그리기
+    gameState.particles.forEach(pt => {
+        ctx.fillStyle = pt.color;
+        ctx.fillRect(pt.x, pt.y, 8, 8);
+    });
+
+    ctx.restore(); // --- 월드 렌더링 끝, 고정 UI 렌더링 시작 ---
+
+    // [추가됨] 오프스크린(화면 밖) 적군 화살표 인디케이터
+    for (let id in gameState.players) {
+        if (id === myId) continue;
+        let p = gameState.players[id];
+        let px = p.x + p.width/2 - camX;
+        let py = p.y + p.height/2 - camY;
+
+        // 화면 영역 밖인지 체크
+        if (px < 0 || px > canvas.width || py < 0 || py > canvas.height) {
+            let angle = Math.atan2(py - canvas.height/2, px - canvas.width/2);
+            let indX = canvas.width/2 + Math.cos(angle) * (canvas.width/2 - 40);
+            let indY = canvas.height/2 + Math.sin(angle) * (canvas.height/2 - 40);
+            
+            // 화면 밖으로 안 나가게 제한
+            indX = Math.max(30, Math.min(indX, canvas.width - 30));
+            indY = Math.max(30, Math.min(indY, canvas.height - 30));
+
+            ctx.save();
+            ctx.translate(indX, indY);
+            // 화살표 그리기
+            ctx.rotate(angle);
+            ctx.fillStyle = 'rgba(255, 50, 50, 0.8)';
+            ctx.beginPath();
+            ctx.moveTo(15, 0); ctx.lineTo(-10, 10); ctx.lineTo(-10, -10);
+            ctx.fill();
+            ctx.restore();
+            
+            // 닉네임 텍스트
+            ctx.fillStyle = 'white'; ctx.strokeStyle = 'black'; ctx.lineWidth = 3;
+            ctx.font = '12px "Malgun Gothic"'; ctx.textAlign = 'center';
+            ctx.strokeText(p.displayName, indX, indY + 25);
+            ctx.fillText(p.displayName, indX, indY + 25);
+        }
+    }
+}
+
+/**
+ * 5. 통신 및 접속
+ */
+function gameLoop() {
+    if (isHost) hostLoop();
+    else sendInputToHost();
+    
+    render();
+    requestAnimationFrame(gameLoop);
+}
+
+function initPeer() {
+    peer = new Peer();
+    peer.on('open', id => { myId = id; });
+}
+
+function startHost() {
+    initPeer();
+    peer.on('open', id => {
+        document.getElementById('host-id').innerText = id;
+        isHost = true;
+        startGameUI();
+        
+        gameState.players[myId] = new Player(myId, mySelectedChar); 
+        
+        peer.on('connection', conn => {
+            connections.push(conn);
+            conn.on('data', data => {
+                if (data.type === 'join') {
+                    // 참가자가 선택한 캐릭터로 생성
+                    gameState.players[conn.peer] = new Player(conn.peer, data.charName); 
+                } else if (data.type === 'input') {
+                    guestInputs[conn.peer] = data.keys;
+                }
+            });
+            conn.on('close', () => { delete gameState.players[conn.peer]; });
+        });
+        
+        requestAnimationFrame(gameLoop);
+    });
+}
+
+function joinGame() {
+    let hostId = document.getElementById('join-id').value.trim();
+    if (!hostId) return alert("방 코드를 입력하세요.");
+    
+    initPeer();
+    peer.on('open', id => {
+        isHost = false;
+        hostConnection = peer.connect(hostId);
+        
+        hostConnection.on('open', () => {
+            startGameUI();
+            // 접속 시 내가 선택한 캐릭터 이름을 전달
+            hostConnection.send({ type: 'join', charName: mySelectedChar });
+        });
+        
+        hostConnection.on('data', data => {
+            if (data.type === 'state') gameState = data.state;
+        });
+        
+        requestAnimationFrame(gameLoop);
+    });
+}
+
+function broadcastState() {
+    connections.forEach(conn => conn.send({ type: 'state', state: gameState }));
+}
+
+function sendInputToHost() {
+    if (hostConnection && hostConnection.open) hostConnection.send({ type: 'input', keys: keys });
+}
+</script>
+</body>
+</html>
