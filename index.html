@@ -90,6 +90,17 @@
     <div>
         <label>시간: <input type="number" id="time-limit" value="3" min="1" max="10" onchange="updateLobbySettings()"></label>
         <label style="margin-left: 5px;">최대 인원: <input type="number" id="setting-max-players" value="4" min="2" max="10" onchange="updateLobbySettings()"></label>
+        
+        <label style="margin-left: 5px;">맵: 
+            <select id="setting-map" onchange="updateLobbySettings()">
+                <option value="random">랜덤</option>
+                <option value="요정왕국">요정왕국</option>
+                <option value="수인숲">수인숲</option>
+                <option value="정령호수">정령호수</option>
+                <option value="유령늪">유령늪</option>
+            </select>
+        </label>
+
         <label style="margin-left: 5px;">이펙트: 
             <select id="setting-effect" onchange="updateSettings()">
                 <option value="on">켜기</option>
@@ -274,6 +285,10 @@ function playSFX(type) {
         case 'heavy_hit': zzfx(1.3, 0.1, 80, 0.02, 0.1, 0.25, 4, 1.5, -15, 0, 0, 0, 0, 0.7, 0, 0, 0, 1, 0, 0); break;
         case 'death': zzfx(2.0, 0.2, 200, 0.1, 0.2, 0.8, 4, 1, -5, 0, 0, 0, 0, 0.8, 0, 0, 0, 1, 0, 0); break;
         case 'shatter': zzfx(1.5, 0.5, 500, 0.01, 0.1, 0.4, 4, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0); break;
+        case 'item_get': // 궁극기 아이템 획득 (띠롱)
+            setTimeout(()=>zzfx(1.2, 0, 880, 0.05, 0.1, 0.1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0), 0);
+            setTimeout(()=>zzfx(1.2, 0, 1318, 0.05, 0.2, 0.2, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0), 100);
+            break;
         case 'ultimate': zzfx(2.0, 0.1, 100, 0.2, 0.2, 0.6, 4, 1, -2, 0, 0, 0, 0, 0.5, 0, 0, 0, 1, 0, 0); break;
         case 'fanfare': 
             setTimeout(()=>zzfx(1, 0, 523, 0.02, 0.1, 0.1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0), 0);
@@ -303,8 +318,31 @@ function playCustomBGM(type) {
 }
 
 /**
- * 1. 기본 설정, 로딩, 캔버스 스케일링
+ * 1. 맵 시스템, 기본 설정, 로딩, 캔버스 스케일링
  */
+const MAP_W = 1600; const MAP_H = 1200;
+
+// 4가지 맵 정의 데이터
+const MAP_DEFS = {
+    '요정왕국': {
+        bg: 'bg1.png', color: '#f1c40f',
+        platforms: [{ x: 300, y: 1000, w: 1000, h: 200 }, { x: 100, y: 700, w: 300, h: 20 }, { x: 1200, y: 700, w: 300, h: 20 }, { x: 650, y: 440, w: 300, h: 20 }]
+    },
+    '수인숲': {
+        bg: 'bg2.png', color: '#2ed573',
+        platforms: [{ x: 300, y: 1000, w: 1000, h: 200 }, { x: 350, y: 700, w: 200, h: 20 }, { x: 1050, y: 700, w: 200, h: 20 }]
+    },
+    '정령호수': {
+        bg: 'bg3.png', color: '#3498db',
+        platforms: [{ x: 300, y: 1000, w: 1000, h: 200 }, { x: 650, y: 750, w: 300, h: 20 }, { x: 650, y: 450, w: 300, h: 20 }]
+    },
+    '유령늪': {
+        bg: 'bg4.png', color: '#9b59b6',
+        platforms: [{ x: 300, y: 1000, w: 1000, h: 200 }, { x: 650, y: 700, w: 300, h: 20 }]
+    }
+};
+const mapNames = Object.keys(MAP_DEFS);
+
 const baseChars = typeof characterList !== 'undefined' ? characterList : ['기본캐릭터'];
 const availableCharacters = ['관전', ...baseChars]; 
 
@@ -314,7 +352,13 @@ availableCharacters.forEach(name => {
         let img = new Image(); img.src = `minimi/${name}.png`; imageCache[name] = img; 
     }
 });
-const bgImage = new Image(); bgImage.src = 'bg/bg1.png';
+
+// 배경 이미지 캐싱
+const bgImages = {};
+mapNames.forEach(name => {
+    let img = new Image(); img.src = 'bg/' + MAP_DEFS[name].bg; bgImages[name] = img;
+});
+
 function parseName(fileName) { return fileName.includes('_') ? fileName.replace('_', '(') + ')' : fileName; }
 
 let settingEffects = true;
@@ -363,9 +407,17 @@ function updateLobbySettings() {
     let maxPlayers = parseInt(document.getElementById('setting-max-players').value);
     if (isNaN(maxPlayers) || maxPlayers < 2) maxPlayers = 4;
     
+    let mapSelection = document.getElementById('setting-map').value;
+
     gameState.timeLimit = minutes;
     gameState.maxPlayers = maxPlayers;
+    gameState.mapSelection = mapSelection;
     gameState.timeLeft = minutes * 60 * 60; // 변경된 시간을 타이머에 즉시 반영
+    
+    // 랜덤이 아닐 경우엔 대기실 백그라운드도 즉시 반영되도록 함
+    if (mapSelection !== 'random') {
+        gameState.currentMap = mapSelection;
+    }
     
     broadcastState();
 }
@@ -446,9 +498,8 @@ function changeCharacterFromSettings() {
     }
 
     if (isHost) {
-        // 동기화된 gameState 기반으로 최대 인원 체크
         let currentMax = gameState.maxPlayers || parseInt(document.getElementById('setting-max-players').value);
-        let currentPlayers = Object.values(gameState.players).filter(p => !p.isSpectator).length;
+        let currentPlayers = Object.values(gameState.players).filter(p => p && !p.isSpectator).length;
         let isCurrentlySpectator = gameState.players[myId] && gameState.players[myId].isSpectator;
 
         if (newChar !== '관전' && isCurrentlySpectator && currentPlayers >= currentMax) {
@@ -539,10 +590,14 @@ bindBtn('btn-up', 'ArrowUp'); bindBtn('btn-down', 'ArrowDown'); bindBtn('btn-z',
  * 3. 게임 상태 정의 
  */
 const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d');
-const GRAVITY = 0.8; const MAX_FALL_SPEED = 15; const MAP_W = 1600; const MAP_H = 1200;
-const platforms = [{ x: 300, y: 1000, w: 1000, h: 200 }, { x: 100, y: 700, w: 300, h: 20 }, { x: 1200, y: 700, w: 300, h: 20 }, { x: 650, y: 440, w: 300, h: 20 }];
+const GRAVITY = 0.8; const MAX_FALL_SPEED = 15; 
 
-let gameState = { status: 'lobby', timeLeft: 0, countdownTimer: 0, gameOverTimer: 0, players: {}, items: [], eventCounter: 0, recentEvents: [] };
+// 게임 상태 객체
+let gameState = { 
+    status: 'lobby', timeLeft: 0, countdownTimer: 0, gameOverTimer: 0, 
+    players: {}, items: [], eventCounter: 0, recentEvents: [], 
+    mapSelection: 'random', currentMap: '요정왕국' 
+};
 let myId = null; let isHost = false; let peer = null; let connections = []; let hostConnection = null; let rankingShown = false;
 let screenShake = 0; let clientLastStatus = null; let clientClimaxTriggered = false;
 
@@ -638,7 +693,15 @@ function triggerStartGame() {
         document.getElementById('btn-start').style.display = 'none';
         document.getElementById('time-limit').disabled = true;
         document.getElementById('setting-max-players').disabled = true; // 인원 설정 잠금
+        document.getElementById('setting-map').disabled = true; // 맵 설정 잠금
         
+        // 랜덤 맵일 경우 게임 시작 시점에 하나를 픽스
+        if (gameState.mapSelection === 'random') {
+            gameState.currentMap = mapNames[Math.floor(Math.random() * mapNames.length)];
+        } else {
+            gameState.currentMap = gameState.mapSelection;
+        }
+
         gameState.status = 'countdown';
         gameState.countdownTimer = 240; 
         
@@ -654,7 +717,7 @@ function triggerStartGame() {
             p.vx = 0; p.vy = 0;
             p.damage = 0; p.score = 0; p.blockGauge = 100; p.isBlockBroken = false;
             p.hitStunTimer = 0; p.attackTimer = 0; p.currentAttack = null;
-            p.isUltimate = false; p.ultimateTimer = 0; p.lastAttackerId = null; p.respawnTimer = 0;
+            p.isUltimate = false; p.ultimateTimer = 0; p.isGlowing = false; p.lastAttackerId = null; p.respawnTimer = 0;
         }
         gameState.items = [];
     }
@@ -664,11 +727,15 @@ function handleRestart() {
     if (isHost) {
         let minutes = parseInt(document.getElementById('time-limit').value); if (isNaN(minutes) || minutes < 1) minutes = 3;
         let maxPlayers = parseInt(document.getElementById('setting-max-players').value); if (isNaN(maxPlayers) || maxPlayers < 2) maxPlayers = 4;
-        
+        let mapSel = document.getElementById('setting-map').value;
+
         gameState.status = 'lobby';
         gameState.timeLimit = minutes;
         gameState.maxPlayers = maxPlayers;
+        gameState.mapSelection = mapSel;
         gameState.timeLeft = minutes * 60 * 60;
+        
+        if (mapSel !== 'random') gameState.currentMap = mapSel;
         
         for (let id in gameState.players) {
             let p = gameState.players[id];
@@ -678,7 +745,8 @@ function handleRestart() {
             p.vx = 0; p.vy = 0;
             p.damage = 0; p.score = 0; p.blockGauge = 100; p.isBlockBroken = false;
             p.hitStunTimer = 0; p.attackTimer = 0; p.currentAttack = null;
-            p.isUltimate = false; p.ultimateTimer = 0; p.lastAttackerId = null; p.respawnTimer = 0;
+            // 궁극기 상태 완벽 초기화
+            p.isGlowing = false; p.isUltimate = false; p.ultimateTimer = 0; p.lastAttackerId = null; p.respawnTimer = 0;
             p.isGrounded = false; p.jumpCount = 0; p.airLightUsed = false; p.walkStep = 0;
         }
         gameState.items = [];
@@ -697,15 +765,14 @@ function hostLoop() {
     // --- 비정상 종료(타임아웃) 체크 ---
     let now = Date.now();
     for (let id in clientHeartbeats) {
-        // 5초(5000ms) 이상 입력(하트비트)이 없으면 접속 종료로 간주
-        if (now - clientHeartbeats[id] > 5000) {
-            delete gameState.players[id];
-            delete guestInputs[id];
+        if (now - clientHeartbeats[id] > 15000) {
+            if (gameState.players[id]) delete gameState.players[id];
+            if (guestInputs[id]) delete guestInputs[id];
             delete clientHeartbeats[id];
             let conn = connections.find(c => c.peer === id);
             if (conn) conn.close();
             connections = connections.filter(c => c.peer !== id);
-            console.log(`[종료] 유저 ${id}의 연결이 끊어졌습니다.`);
+            console.log(`[종료] 유저 ${id}의 응답이 길어져 연결을 종료합니다.`);
         }
     }
     // ---------------------------------
@@ -731,6 +798,7 @@ function hostLoop() {
     }
 
     let canAttack = (gameState.status !== 'countdown'); 
+    let currentPlatforms = MAP_DEFS[gameState.currentMap].platforms;
 
     for (let id in gameState.players) {
         let p = gameState.players[id];
@@ -752,14 +820,14 @@ function hostLoop() {
             if (p.respawnTimer <= 0) {
                 p.x = MAP_W / 2 + (Math.random() * 200 - 100); p.y = 100; p.vx = 0; p.vy = 0; 
                 p.damage = 0; p.lastAttackerId = null; p.blockGauge = 100; p.isBlockBroken = false;
-                p.hitStunTimer = 0; p.attackTimer = 0; p.currentAttack = null; p.isUltimate = false; p.ultimateTimer = 0;
+                p.hitStunTimer = 0; p.attackTimer = 0; p.currentAttack = null; p.isUltimate = false; p.isGlowing = false; p.ultimateTimer = 0;
                 p.isGrounded = false; p.jumpCount = 0; p.airLightUsed = false;
             }
             continue; 
         }
 
         if (p.ultimateTimer > 0) p.ultimateTimer--;
-        if (p.ultimateTimer === 1) { p.isUltimate = false; p.width /= 2; p.height /= 2; }
+        if (p.ultimateTimer === 1) { p.isUltimate = false; } // 너비는 클라이언트 렌더링에서 자동으로 리셋됨
 
         if (p.hitStunTimer > 0) {
             p.hitStunTimer--; p.isBlocking = false; p.attackTimer = 0; 
@@ -815,7 +883,7 @@ function hostLoop() {
                     else { p.attackTimer = 15; p.currentAttack = 'air_heavy_startup'; p.vy = 0; p.vx = 0; p.meteorStartY = p.y; if(id===myId) playSFX('charge'); }
                 } else if (pKeys.c && p.isGlowing) { 
                     p.isGlowing = false; p.isUltimate = true; p.ultimateTimer = 500;
-                    p.width *= 2; p.height *= 2; p.y -= p.height/2; spawnDeathEffects(p.x + p.width/2, p.y + p.height/2);
+                    p.y -= p.height/2; spawnDeathEffects(p.x + p.width, p.y + p.height); // 임시 보정치 적용
                     if(id===myId) playSFX('ultimate');
                 }
             }
@@ -827,7 +895,8 @@ function hostLoop() {
         
         p.x += p.vx; p.y += p.vy; p.isGrounded = false;
         
-        for (let plat of platforms) {
+        // 동적 플랫폼 물리 충돌
+        for (let plat of currentPlatforms) {
             if (p.x + p.width > plat.x && p.x < plat.x + plat.w) {
                 if (p.vy >= 0 && oldY + p.height <= plat.y + 15 && p.y + p.height >= plat.y) {
                     p.y = plat.y - p.height; p.vy = 0; p.isGrounded = true; p.jumpCount = 0; p.airLightUsed = false; break;
@@ -853,10 +922,23 @@ function hostLoop() {
     if (gameState.status === 'playing' && Math.random() < 0.0003) gameState.items.push({ x: Math.random() * (MAP_W - 200) + 100, y: -50, vy: 3 });
     for (let i = gameState.items.length - 1; i >= 0; i--) {
         let item = gameState.items[i]; let oldItemY = item.y; item.y += item.vy;
-        for (let plat of platforms) if (item.x > plat.x && item.x < plat.x + plat.w && oldItemY + 10 <= plat.y && item.y + 10 >= plat.y) { item.y = plat.y - 10; item.vy = 0; }
+        
+        // 동적 플랫폼 기반 아이템 물리 
+        for (let plat of currentPlatforms) {
+            if (item.x > plat.x && item.x < plat.x + plat.w && oldItemY + 10 <= plat.y && item.y + 10 >= plat.y) { 
+                item.y = plat.y - 10; item.vy = 0; 
+            }
+        }
+        
         for (let id in gameState.players) {
             let p = gameState.players[id]; if (p.respawnTimer > 0 || p.isSpectator) continue; 
-            if (Math.abs((p.x + p.width/2) - item.x) < p.width && Math.abs((p.y + p.height/2) - item.y) < p.height) { p.isGlowing = true; gameState.items.splice(i, 1); break; }
+            // 아이템 획득 이벤트
+            if (Math.abs((p.x + p.width/2) - item.x) < p.width && Math.abs((p.y + p.height/2) - item.y) < p.height) { 
+                p.isGlowing = true; 
+                gameState.recentEvents.push({ id: ++gameState.eventCounter, type: 'item_get', x: p.x + p.width/2, y: p.y + p.height/2 });
+                gameState.items.splice(i, 1); 
+                break; 
+            }
         }
         if (item && item.y > MAP_H + 100) gameState.items.splice(i, 1); 
     }
@@ -867,7 +949,6 @@ function hostLoop() {
 
 function processAttack(attacker, type) {
     let range, baseDmg, baseKnockback;
-    // 💡 attacker.width -> attacker.height 적용
     if (type === 'heavy') { range = attacker.height * 2.0; baseDmg = 16; baseKnockback = 12; }
     else if (type === 'light') { range = attacker.height * 1.8; baseDmg = 5; baseKnockback = 4; }
     else if (type === 'air_light') { range = attacker.height * 1.8; baseDmg = 8; baseKnockback = 6; } 
@@ -883,7 +964,6 @@ function processAttack(attacker, type) {
         if (isHit) { 
             if (target.isBlocking) {
                 target.blockGauge -= baseDmg * 3; target.vx += attacker.dir * 4 * (target.isUltimate ? 0.25 : 1); 
-                // 💡 target.width -> target.height 적용
                 if(target.blockGauge <= 0 && !target.isBlockBroken) { target.isBlockBroken = true; if(!target.isUltimate) target.hitStunTimer = 40; spawnGlassShatter(target.x + target.width/2, target.y + target.height/2, target.height); }
                 spawnHitParticles(target.x + target.width/2 - attacker.dir*20, target.y + target.height/2, baseDmg * 0.5, type);
             } else {
@@ -950,6 +1030,13 @@ function executeLocalEvent(ev) {
         let range = 400 * ev.powerRatio; 
         localShockwaves.push({ x: ev.x, y: ev.y, radius: 20, life: 25, maxLife: 25, maxRadius: range, type: 'meteor' });
         localPillars.push({ x: ev.x, y: ev.y, width: 150 * ev.powerRatio, height: 600 * ev.powerRatio, life: 20, maxLife: 20 });
+    } else if (ev.type === 'item_get') {
+        playSFX('item_get');
+        // 아이템 획득 시 팡 터지는 노란색 파티클
+        for(let i=0; i<20; i++) {
+            let speed = 5 + Math.random() * 10; let angle = Math.random() * Math.PI * 2;
+            localParticles.push({ x: ev.x, y: ev.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 20, maxLife: 30, color: '#ffff00', size: 4, type: 'shard' });
+        }
     }
 }
 
@@ -975,10 +1062,12 @@ function render() {
             if (isHost) {
                 document.getElementById('btn-start').style.display = 'inline-block';
                 document.getElementById('time-limit').disabled = false;
-                document.getElementById('setting-max-players').disabled = false; // 방장은 대기실에서 수정 가능
+                document.getElementById('setting-max-players').disabled = false; 
+                document.getElementById('setting-map').disabled = false; 
             } else {
                 document.getElementById('time-limit').disabled = true;
-                document.getElementById('setting-max-players').disabled = true; // 게스트는 수정 불가 잠금
+                document.getElementById('setting-max-players').disabled = true; 
+                document.getElementById('setting-map').disabled = true; 
             }
         }
         else if (gameState.status === 'countdown') playCustomBGM('playing'); 
@@ -986,10 +1075,15 @@ function render() {
         clientLastStatus = gameState.status;
     }
     
-    // 클라이언트(게스트)라면 방장이 수정한 대기실 설정을 UI에 실시간 매칭
+    // UI 업데이트 (방장이 수정한 값을 게스트에게 실시간 매칭)
     if (!isHost) {
-        if (gameState.timeLimit) document.getElementById('time-limit').value = gameState.timeLimit;
-        if (gameState.maxPlayers) document.getElementById('setting-max-players').value = gameState.maxPlayers;
+        let timeInput = document.getElementById('time-limit');
+        let maxPlayersInput = document.getElementById('setting-max-players');
+        let mapInput = document.getElementById('setting-map');
+        
+        if (gameState.timeLimit && timeInput.value != gameState.timeLimit) timeInput.value = gameState.timeLimit;
+        if (gameState.maxPlayers && maxPlayersInput.value != gameState.maxPlayers) maxPlayersInput.value = gameState.maxPlayers;
+        if (gameState.mapSelection && mapInput.value != gameState.mapSelection) mapInput.value = gameState.mapSelection;
     }
     
     if (gameState.status === 'playing' && gameState.timeLeft <= 3600 && !clientClimaxTriggered) { 
@@ -1048,8 +1142,17 @@ function render() {
     ctx.scale(currentScale, currentScale);
     ctx.translate(-currentCamX, -currentCamY); 
     
-    if (bgImage.complete) ctx.drawImage(bgImage, 0, 0, MAP_W, MAP_H); else { ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, MAP_W, MAP_H); }
-    platforms.forEach(plat => { ctx.fillStyle = '#2f3542'; ctx.fillRect(plat.x, plat.y, plat.w, plat.h); ctx.fillStyle = '#2ed573'; ctx.fillRect(plat.x, plat.y, plat.w, 15); });
+    // --- 맵 렌더링 ---
+    let mapDef = MAP_DEFS[gameState.currentMap] || MAP_DEFS['요정왕국'];
+    let bgImg = bgImages[gameState.currentMap];
+    if (bgImg && bgImg.complete) ctx.drawImage(bgImg, 0, 0, MAP_W, MAP_H); 
+    else { ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, MAP_W, MAP_H); }
+    
+    mapDef.platforms.forEach(plat => { 
+        ctx.fillStyle = '#2f3542'; ctx.fillRect(plat.x, plat.y, plat.w, plat.h); 
+        ctx.fillStyle = mapDef.color; ctx.fillRect(plat.x, plat.y, plat.w, 15); 
+    });
+    // -----------------
 
     if (settingEffects) {
         localPillars.forEach(pil => { let ratio = pil.life / pil.maxLife; let grd = ctx.createLinearGradient(0, pil.y - pil.height, 0, pil.y); grd.addColorStop(0, `rgba(255, 255, 255, 0)`); grd.addColorStop(1, `rgba(255, 150, 50, ${ratio * 0.8})`); ctx.fillStyle = grd; ctx.fillRect(pil.x - pil.width/2 * ratio, pil.y - pil.height, pil.width * ratio, pil.height); });
@@ -1062,7 +1165,16 @@ function render() {
 
     for (let id in gameState.players) {
         let p = gameState.players[id]; if (p.respawnTimer > 0 || p.isSpectator) continue; 
-        let img = imageCache[p.imageName]; if (img && img.complete && img.naturalWidth > 0 && !p.isUltimate) { p.width = img.naturalWidth; p.height = img.naturalHeight; }
+        
+        let img = imageCache[p.imageName]; 
+        if (img && img.complete && img.naturalWidth > 0 && !p.isUltimate) { 
+            p.width = img.naturalWidth; 
+            p.height = img.naturalHeight; 
+        } else if (p.isUltimate && img && img.complete && img.naturalWidth > 0) {
+            p.width = img.naturalWidth * 2; 
+            p.height = img.naturalHeight * 2; 
+        }
+
         let bobbing = 0; if (Math.abs(p.vx) > 0.5 && p.isGrounded && !p.isBlocking && p.hitStunTimer === 0) bobbing = Math.sin(Date.now() / 60) * 6; 
 
         ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2 + bobbing);
@@ -1078,7 +1190,6 @@ function render() {
         }
         ctx.scale(-p.dir, 1); 
 
-        // 💡 p.width -> p.height 적용
         if (p.isUltimate) { 
             let pulse = Math.sin(Date.now() / 150); ctx.fillStyle = `rgba(255, 50, 50, ${0.4 + 0.2*pulse})`; ctx.beginPath(); ctx.arc(0, 0, p.height * 0.6 + pulse*10, 0, Math.PI*2); ctx.fill();
             if(Math.random() < 0.3) { ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo((Math.random()-0.5)*p.height*1.5, (Math.random()-0.5)*p.height*1.5); ctx.lineTo((Math.random()-0.5)*p.height*1.5, (Math.random()-0.5)*p.height*1.5); ctx.stroke(); }
@@ -1089,13 +1200,11 @@ function render() {
         if (img && img.complete) ctx.drawImage(img, -p.width/2, -p.height/2, p.width, p.height); ctx.globalAlpha = 1.0; 
         ctx.restore();
 
-        // 💡 p.width -> p.height 적용
         if (p.hitStunTimer > 0 && p.isBlockBroken && !p.isUltimate) {
             let dizzyTime = Date.now() / 150; ctx.save(); ctx.translate(p.x + p.width/2, p.y - 10);
             for(let i=0; i<3; i++) { let angle = dizzyTime + (i * Math.PI*2/3); let sx = Math.cos(angle) * p.height * 0.4; let sy = Math.sin(angle) * 5; ctx.beginPath(); ctx.arc(sx, sy, 4, 0, Math.PI*2); ctx.fillStyle = '#ffcc00'; ctx.shadowBlur = 10; ctx.shadowColor = 'yellow'; ctx.fill(); } ctx.restore();
         }
 
-        // 💡 각종 공격 이펙트 크기 세로(p.height)로 통일
         if (p.currentAttack === 'heavy' && p.attackTimer <= 25 && p.attackTimer > 15) {
             let prog = (25 - p.attackTimer) / 10; ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.scale(p.dir, 1); ctx.beginPath(); ctx.arc(0, 0, p.height * 1.6, -Math.PI/2, -Math.PI/2 + Math.PI * 1.6 * prog, false); ctx.lineWidth = 40 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(255, 50, 0, ${Math.sin(prog * Math.PI)})`; ctx.shadowBlur = 30; ctx.shadowColor = 'red'; ctx.lineCap = 'round'; ctx.stroke(); ctx.beginPath(); ctx.arc(0, 0, p.height * 1.4, -Math.PI/2, -Math.PI/2 + Math.PI * 1.4 * prog, false); ctx.lineWidth = 20 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(255, 255, 100, ${Math.sin(prog * Math.PI)})`; ctx.shadowBlur = 10; ctx.shadowColor = 'white'; ctx.stroke(); ctx.restore();
         } else if (p.currentAttack === 'light' && p.attackTimer < 10) {
@@ -1108,7 +1217,6 @@ function render() {
             ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.beginPath(); ctx.moveTo(0, p.height/2); ctx.lineTo(-30, -p.height*1.5); ctx.lineTo(30, -p.height*1.5); ctx.closePath(); ctx.fillStyle = `rgba(255, 50, 0, ${0.6 + Math.random()*0.4})`; ctx.shadowBlur = 40; ctx.shadowColor = 'red'; ctx.fill(); ctx.restore();
         }
 
-        // 💡 쉴드 반경 또한 세로(p.height) 기준으로 통일
         if (p.isBlocking) {
             ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.beginPath(); ctx.arc(0, 0, p.height * 0.8, 0, Math.PI * 2); let hue = (p.blockGauge / 100) * 200; let alpha = 0.2 + (p.blockGauge / 100) * 0.2; let grd = ctx.createRadialGradient(0, 0, p.height * 0.5, 0, 0, p.height * 0.8); grd.addColorStop(0, `hsla(${hue}, 100%, 50%, 0)`); grd.addColorStop(1, `hsla(${hue}, 100%, 60%, ${alpha})`); ctx.fillStyle = grd; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = `hsla(${hue}, 100%, 80%, ${alpha + 0.3})`; ctx.shadowBlur = 10; ctx.shadowColor = `hsl(${hue}, 100%, 50%)`; ctx.stroke(); ctx.restore();
         }
@@ -1222,6 +1330,7 @@ function startHost() {
     unlockAudio(); 
     let minutes = parseInt(document.getElementById('time-limit').value); if (isNaN(minutes) || minutes < 1) minutes = 3;
     let maxPlayers = parseInt(document.getElementById('setting-max-players').value); if (isNaN(maxPlayers) || maxPlayers < 2) maxPlayers = 4;
+    let mapSelection = document.getElementById('setting-map').value;
     
     document.getElementById('btn-host').disabled = true;
     document.getElementById('btn-join').disabled = true;
@@ -1234,6 +1343,8 @@ function startHost() {
         gameState.status = 'lobby'; 
         gameState.timeLimit = minutes;
         gameState.maxPlayers = maxPlayers;
+        gameState.mapSelection = mapSelection;
+        gameState.currentMap = mapSelection === 'random' ? '요정왕국' : mapSelection;
         gameState.timeLeft = minutes * 60 * 60; 
         gameState.players[myId] = new Player(myId, mySelectedChar); 
         
@@ -1246,7 +1357,7 @@ function startHost() {
 
                 if (data.type === 'join') { 
                     let currentMax = gameState.maxPlayers || parseInt(document.getElementById('setting-max-players').value);
-                    let currentPlayers = Object.values(gameState.players).filter(p => !p.isSpectator).length;
+                    let currentPlayers = Object.values(gameState.players).filter(p => p && !p.isSpectator).length;
 
                     if (data.charName !== '관전' && currentPlayers >= currentMax) {
                         conn.send({ type: 'error', message: '방 인원이 가득 찼습니다.' });
@@ -1258,7 +1369,7 @@ function startHost() {
                 else if (data.type === 'change_char') { 
                     if (data.charName !== '관전') {
                         let currentMax = gameState.maxPlayers || parseInt(document.getElementById('setting-max-players').value);
-                        let currentPlayers = Object.values(gameState.players).filter(p => !p.isSpectator).length;
+                        let currentPlayers = Object.values(gameState.players).filter(p => p && !p.isSpectator).length;
                         let p = gameState.players[conn.peer];
                         if (p && p.isSpectator && currentPlayers >= currentMax) {
                             conn.send({ type: 'alert', message: '최대 인원 초과로 플레이어 캐릭터로 변경할 수 없습니다.' });
@@ -1275,9 +1386,9 @@ function startHost() {
             }); 
             
             conn.on('close', () => { 
-                delete gameState.players[conn.peer]; 
-                delete clientHeartbeats[conn.peer];
-                delete guestInputs[conn.peer];
+                if (gameState.players[conn.peer]) delete gameState.players[conn.peer]; 
+                if (clientHeartbeats[conn.peer]) delete clientHeartbeats[conn.peer];
+                if (guestInputs[conn.peer]) delete guestInputs[conn.peer];
                 connections = connections.filter(c => c.peer !== conn.peer);
             }); 
         });
@@ -1305,11 +1416,9 @@ function joinGame() {
             if (data.type === 'state') {
                 gameState = data.state; 
             } else if (data.type === 'error') {
-                // 접속 거절 시
                 alert(data.message);
                 location.reload(); 
             } else if (data.type === 'alert') {
-                // 변경 거절 시
                 alert(data.message);
                 mySelectedChar = '관전';
                 document.getElementById('setting-char').value = '관전';
@@ -1323,7 +1432,6 @@ function joinGame() {
     });
 }
 function broadcastState() { connections.forEach(conn => conn.send({ type: 'state', state: gameState })); }
-
 
 function sendInputToHost() { if (hostConnection && hostConnection.open && gameState.status !== 'finished') hostConnection.send({ type: 'input', keys: keys }); }
 </script>
