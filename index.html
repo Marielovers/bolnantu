@@ -1228,23 +1228,8 @@ function joinGame() {
         }
     });
 }
+function broadcastState() { connections.forEach(conn => conn.send({ type: 'state', state: gameState })); }
 
-function broadcastState() { 
-    connections = connections.filter(conn => {
-        if (conn.open) {
-            conn.send({ type: 'state', state: gameState });
-            return true;
-        }
-        return false;
-    });
-
-    for (let id in gameState.players) {
-        if (id !== myId && !connections.some(c => c.peer === id)) {
-            delete gameState.players[id];
-            delete guestInputs[id]; 
-        }
-    }
-}
 
 function sendInputToHost() { if (hostConnection && hostConnection.open && gameState.status !== 'finished') hostConnection.send({ type: 'input', keys: keys }); }
 </script>
