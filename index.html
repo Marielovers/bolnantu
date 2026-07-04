@@ -27,7 +27,18 @@
         button:hover, select:hover { background: #555; box-shadow: 0 0 10px rgba(255,255,255,0.2); }
         button:disabled { background: #666; cursor: not-allowed; color: #999; }
         input[type="number"] { width: 50px; text-align: center; }
-        input[type="range"] { width: 80px; vertical-align: middle; margin: 0 5px; accent-color: #ff4757; }
+        
+        input[type="range"] { 
+            width: 80px; 
+            vertical-align: middle; 
+            margin: 0 5px; 
+            accent-color: #ff4757; 
+            padding: 0; 
+            background: transparent; 
+            border: none; 
+            box-shadow: none; 
+        }
+
         #host-id { color: #0f0; letter-spacing: 1px; }
         
         .setting-group { border-left: 1px solid #555; padding-left: 10px; display: flex; align-items: center; gap: 5px; font-size: 13px; }
@@ -89,7 +100,7 @@
 <div id="ui-content">
     <div>
         <label>시간: <input type="number" id="time-limit" value="3" min="1" max="10" onchange="updateLobbySettings()"></label>
-        <label style="margin-left: 5px;">최대 인원: <input type="number" id="setting-max-players" value="4" min="2" max="10" onchange="updateLobbySettings()"></label>
+        <label style="margin-left: 5px;">최대 인원: <input type="number" id="setting-max-players" value="4" min="2" max="20" onchange="updateLobbySettings()"></label>
         
         <label style="margin-left: 5px;">맵: 
             <select id="setting-map" onchange="updateLobbySettings()">
@@ -127,8 +138,8 @@
     </div>
     
     <div class="setting-group">
-        <label>BGM <input type="range" id="vol-bgm" min="0" max="100" value="30" onchange="updateSettings()"></label>
-        <label>효과음 <input type="range" id="vol-sfx" min="0" max="100" value="30" onchange="updateSettings()"></label>
+        <label>BGM <input type="range" id="vol-bgm" min="0" max="100" value="30" oninput="updateSettings()"></label>
+        <label>효과음 <input type="range" id="vol-sfx" min="0" max="100" value="30" oninput="updateSettings()"></label>
     </div>
 
     <div class="setting-group">
@@ -193,6 +204,10 @@ let clientConnectionStatus = 'idle';
 let firstStateReceived = false;
 let sfxFadeInStart = Date.now();
 let targetSfxVolume = 0.15; 
+
+// [최적화 1] 네트워크 전송 틱 레이트 설정 (초당 30프레임 전송)
+let lastNetworkTick = 0;
+const NETWORK_TICK_RATE = 1000 / 30; 
 
 function toggleAutoStart() {
     autoStartEnabled = document.getElementById('setting-auto-start').checked;
@@ -360,7 +375,7 @@ const MAP_DEFS = {
     },
     '모나티엄': {
         bg: 'bg5.webp', color: '#7f8c8d', 
-        platforms: [{ x: 0, y: 1000, w: MAP_W, h: 200 }]
+        platforms: [{ x: -500, y: 1000, w: MAP_W + 1000, h: 200 }]
     },
     '마녀왕국': {
         bg: 'bg6.webp', color: '#9b59b6', 
@@ -641,6 +656,12 @@ class Player {
         this.airLightUsed = false; this.meteorStartY = 0; this.respawnTimer = 0; this.wasJumpPressed = false;
         this.walkStep = 0;
         this.justGuardWindow = 0; 
+
+        this.cKeyHoldTimer = 0;
+        this.emojiWheelOpen = false;
+        this.selectedEmojiIndex = -1;
+        this.activeEmoji = null;
+        this.activeEmojiTimer = 0;
     }
 }
 
@@ -823,7 +844,7 @@ function hostLoop() {
             gameState.status = 'finished'; 
             autoRestartTimer = 10 * 60; 
         }
-        broadcastState(); return;
+        return;
     }
 
     if (gameState.status === 'lobby' && autoStartEnabled) {
@@ -848,7 +869,7 @@ function hostLoop() {
         if (gameState.timeLeft <= 0) { 
             gameState.status = 'gameover_anim'; 
             gameState.gameOverTimer = 180; 
-            broadcastState(); return; 
+            return; 
         }
     }
 
@@ -895,12 +916,49 @@ function hostLoop() {
         if (p.hitStunTimer > 0) {
             p.hitStunTimer--; p.isBlocking = false; p.attackTimer = 0; 
         } else {
+            if (p.activeEmojiTimer > 0) p.activeEmojiTimer--;
+            else p.activeEmoji = null;
+
+            if (!p.isBlockBroken && canAttack) {
+                if (pKeys.c && !p.isGlowing && !p.isUltimate) {
+                    p.cKeyHoldTimer++;
+                    if (p.cKeyHoldTimer > 20) p.emojiWheelOpen = true; 
+                } else {
+                    if (p.emojiWheelOpen) {
+                        if (p.selectedEmojiIndex !== -1) {
+                            const emojis = ['😀', '😂', '😎', '😍', '🤔', '😭', '😡', '👍'];
+                            p.activeEmoji = emojis[p.selectedEmojiIndex];
+                            p.activeEmojiTimer = 120; 
+                        }
+                        p.emojiWheelOpen = false;
+                    }
+                    p.cKeyHoldTimer = 0;
+                    p.selectedEmojiIndex = -1;
+                }
+            }
+
+            if (p.emojiWheelOpen) {
+                let dx = 0, dy = 0;
+                if (pKeys.ArrowUp) dy = -1;
+                if (pKeys.ArrowDown) dy = 1;
+                if (pKeys.ArrowLeft) dx = -1;
+                if (pKeys.ArrowRight) dx = 1;
+                
+                if (dx !== 0 || dy !== 0) {
+                    let angle = Math.atan2(dy, dx) + Math.PI / 2;
+                    if (angle < 0) angle += Math.PI * 2;
+                    p.selectedEmojiIndex = Math.round(angle / (Math.PI / 4)) % 8;
+                } else {
+                    p.selectedEmojiIndex = -1;
+                }
+            }
+
             let wasBlockBroken = p.isBlockBroken; 
             if (p.isBlockBroken) {
                 p.isBlocking = false; p.blockGauge += 0.5; 
                 if (p.blockGauge >= 100) { p.blockGauge = 100; p.isBlockBroken = false; }
             } else {
-                if (canAttack && pKeys.ArrowDown && p.blockGauge > 0 && p.attackTimer === 0) {
+                if (canAttack && pKeys.ArrowDown && p.blockGauge > 0 && p.attackTimer === 0 && !p.emojiWheelOpen) {
                     if (!p.isBlocking) p.justGuardWindow = 8; 
                     else if (p.justGuardWindow > 0) p.justGuardWindow--;
                     
@@ -916,9 +974,13 @@ function hostLoop() {
                 }
             }
 
-            if (p.attackTimer === 0 && !p.isBlocking) {
+            if (p.attackTimer === 0 && !p.isBlocking && !p.emojiWheelOpen) {
                 if (pKeys.ArrowLeft) { p.vx = -6.5; p.dir = -1; } else if (pKeys.ArrowRight) { p.vx = 6.5; p.dir = 1; } else { p.vx *= 0.8; } 
-            } else { p.vx *= 0.95; }
+            } else if (!p.emojiWheelOpen) { 
+                p.vx *= 0.95; 
+            } else {
+                p.vx *= 0.8; 
+            }
             
             if (Math.abs(p.vx) > 0.5 && p.isGrounded && !p.isBlocking && p.hitStunTimer === 0) {
                 p.walkStep = (p.walkStep || 0) + 1;
@@ -930,7 +992,7 @@ function hostLoop() {
                 p.walkStep = 0;
             }
 
-            if (pKeys.ArrowUp && !p.wasJumpPressed && p.jumpCount < 2 && p.attackTimer === 0 && !p.isBlocking) {
+            if (pKeys.ArrowUp && !p.wasJumpPressed && p.jumpCount < 2 && p.attackTimer === 0 && !p.isBlocking && !p.emojiWheelOpen) {
                 p.vy = (p.jumpCount === 0) ? -22 : -16; p.jumpCount++; p.airLightUsed = false; 
                 if (id === myId) playSFX('jump'); 
             }
@@ -944,7 +1006,7 @@ function hostLoop() {
                 if (p.currentAttack === 'air_heavy_startup' && p.attackTimer === 0) { p.currentAttack = 'air_heavy'; p.attackTimer = 999; p.vy = 30; }
                 if (p.currentAttack === 'air_heavy') { p.vy = 35; if(p.attackTimer <= 1) p.attackTimer = 999; }
                 if (p.currentAttack === 'air_heavy_landing') { p.vx = 0; }
-            } else if (!p.isBlocking && canAttack) {
+            } else if (!p.isBlocking && canAttack && !p.emojiWheelOpen) {
                 if (pKeys.z) {
                     if (p.isGrounded) { p.attackTimer = 18; p.currentAttack = 'light'; p.vx += p.dir * 5; if(id===myId) playSFX('light_attack'); } 
                     else if (!p.airLightUsed) { p.attackTimer = 12; p.currentAttack = 'air_light'; p.airLightUsed = true; if(id===myId) playSFX('air_light_attack'); }
@@ -1066,8 +1128,12 @@ function hostLoop() {
         if (item && item.y > MAP_H + 100) gameState.items.splice(i, 1); 
     }
 
-    while (gameState.recentEvents.length > 50) gameState.recentEvents.shift();
-    broadcastState();
+    // [최적화 1] 호스트 렌더링 프레임과 네트워크 전송 틱을 분리
+    let nowTime = Date.now();
+    if (nowTime - lastNetworkTick >= NETWORK_TICK_RATE) {
+        broadcastState();
+        lastNetworkTick = nowTime;
+    }
 }
 
 function processAttack(attacker, type) {
@@ -1401,6 +1467,63 @@ function render() {
         ctx.fillStyle = 'white'; ctx.strokeStyle = 'black'; ctx.lineWidth = 4; ctx.font = '16px "OneMobilePop", sans-serif'; ctx.textAlign = 'center'; ctx.strokeText(p.displayName, p.x + p.width/2, p.y - 35); ctx.fillText(p.displayName, p.x + p.width/2, p.y - 35);
         ctx.fillStyle = p.damage > 100 ? '#ff3333' : (p.damage > 50 ? '#ffff33' : 'white'); ctx.font = '26px "OneMobilePop", sans-serif'; ctx.strokeText(`${Math.floor(p.damage)}%`, p.x + p.width/2, p.y - 10); ctx.fillText(`${Math.floor(p.damage)}%`, p.x + p.width/2, p.y - 10);
         ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(p.x, p.y + p.height + 15, p.width, 8); ctx.fillStyle = p.isBlockBroken ? '#555' : (p.blockGauge > 30 ? '#00ffff' : '#ff0000'); ctx.fillRect(p.x, p.y + p.height + 15, p.width * (p.blockGauge / 100), 8);
+
+        if (p.activeEmoji && p.activeEmojiTimer > 0) {
+            ctx.save();
+            ctx.translate(p.x + p.width/2, p.y - 70); 
+            let bob = Math.sin(p.activeEmojiTimer * 0.15) * 4;
+            ctx.translate(0, bob);
+            
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.beginPath();
+            ctx.arc(0, 0, 22, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = '#000';
+            ctx.font = '26px Arial, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(p.activeEmoji, 0, 2); 
+            ctx.restore();
+        }
+
+        if (p.emojiWheelOpen && id === myId) {
+            const emojis = ['😀', '😂', '😎', '😍', '🤔', '😭', '😡', '👍'];
+            const radius = 70; 
+            ctx.save();
+            ctx.translate(p.x + p.width/2, p.y + p.height/2);
+            
+            for (let i = 0; i < 8; i++) {
+                let angle = i * (Math.PI / 4) - Math.PI / 2;
+                let ex = Math.cos(angle) * radius;
+                let ey = Math.sin(angle) * radius;
+                
+                let isSelected = (i === p.selectedEmojiIndex);
+                let scale = isSelected ? 1.4 : 1.0;
+                
+                ctx.save();
+                ctx.translate(ex, ey);
+                ctx.scale(scale, scale);
+                
+                ctx.fillStyle = isSelected ? 'rgba(255, 255, 100, 0.9)' : 'rgba(0, 0, 0, 0.6)';
+                ctx.beginPath();
+                ctx.arc(0, 0, 18, 0, Math.PI * 2);
+                ctx.fill();
+                
+                if (isSelected) {
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = '#ffcc00';
+                    ctx.stroke();
+                }
+                
+                ctx.font = '22px Arial, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(emojis[i], 0, 2); 
+                ctx.restore();
+            }
+            ctx.restore();
+        }
     }
 
     if (settingEffects) {
@@ -1491,8 +1614,38 @@ function showRankingScreen() {
     rankingDiv.style.display = 'block';
 }
 
+// [최적화 3] 클라이언트 보간 (서버 좌표와 클라이언트 렌더링 좌표를 부드럽게 맞춤)
+function clientInterpolation() {
+    if (isHost) return;
+    for (let id in gameState.players) {
+        let p = gameState.players[id];
+        if (p.targetX !== undefined && p.targetY !== undefined) {
+            // 기초 로컬 예측: 내가 조작 중일 때 방향키에 따라 캐릭터 방향(dir) 즉각 전환
+            if (id === myId) {
+                if (keys.ArrowLeft && p.attackTimer === 0 && !p.isBlocking && !p.emojiWheelOpen) p.dir = -1;
+                if (keys.ArrowRight && p.attackTimer === 0 && !p.isBlocking && !p.emojiWheelOpen) p.dir = 1;
+            }
+            
+            // 순간이동(부활 등) 처리: 너무 멀면 즉시 스냅
+            let dist = Math.abs(p.targetX - p.x) + Math.abs(p.targetY - p.y);
+            if (dist > 300) {
+                p.x = p.targetX;
+                p.y = p.targetY;
+            } else {
+                p.x += (p.targetX - p.x) * 0.4;
+                p.y += (p.targetY - p.y) * 0.4;
+            }
+        }
+    }
+}
+
 function gameLoop() { 
-    if (isHost) hostLoop(); else sendInputToHost(); 
+    if (isHost) {
+        hostLoop();
+    } else { 
+        sendInputToHost(); 
+        clientInterpolation(); 
+    }
     
     let elapsed = Date.now() - sfxFadeInStart;
     if (elapsed < 3000) {
@@ -1684,8 +1837,44 @@ function joinGame() {
                     firstStateReceived = true;
                     sfxFadeInStart = Date.now();
                     localLastEventId = data.state.eventCounter;
+                    gameState = data.state; 
+                } else {
+                    // [최적화 3] 데이터 수신 시, 즉각 덮어쓰지 않고 보간을 위해 x, y값을 분리 저장합니다.
+                    let newPlayers = data.state.players;
+                    for (let pid in newPlayers) {
+                        if (gameState.players[pid]) {
+                            let oldX = gameState.players[pid].x;
+                            let oldY = gameState.players[pid].y;
+                            
+                            Object.assign(gameState.players[pid], newPlayers[pid]);
+                            
+                            // 렌더링에 사용될 실제 x,y는 유지하고 목표 지점(target)만 최신화
+                            gameState.players[pid].targetX = newPlayers[pid].x;
+                            gameState.players[pid].targetY = newPlayers[pid].y;
+                            gameState.players[pid].x = oldX;
+                            gameState.players[pid].y = oldY;
+                        } else {
+                            gameState.players[pid] = newPlayers[pid];
+                            gameState.players[pid].targetX = newPlayers[pid].x;
+                            gameState.players[pid].targetY = newPlayers[pid].y;
+                        }
+                    }
+                    
+                    // 나간 플레이어 정리
+                    for (let pid in gameState.players) {
+                        if (!newPlayers[pid]) delete gameState.players[pid];
+                    }
+                    
+                    // 기타 게임 상태 동기화
+                    gameState.status = data.state.status;
+                    gameState.timeLeft = data.state.timeLeft;
+                    gameState.countdownTimer = data.state.countdownTimer;
+                    gameState.gameOverTimer = data.state.gameOverTimer;
+                    gameState.currentMap = data.state.currentMap;
+                    gameState.eventCounter = data.state.eventCounter;
+                    gameState.recentEvents = data.state.recentEvents;
+                    gameState.items = data.state.items;
                 }
-                gameState = data.state; 
             } 
             else if (data.type === 'error') { alert(data.message); location.reload(); } 
             else if (data.type === 'alert') { alert(data.message); mySelectedChar = '관전'; document.getElementById('setting-char').value = '관전'; }
@@ -1704,7 +1893,44 @@ function joinGame() {
     });
 }
 
-function broadcastState() { connections.forEach(conn => conn.send({ type: 'state', state: gameState })); }
+// [최적화 2] 페이로드 경량화: 네트워크 전송 시 필수 상태값만 압축해서 보냅니다.
+function getLightweightState() {
+    let lightPlayers = {};
+    for (let id in gameState.players) {
+        let p = gameState.players[id];
+        lightPlayers[id] = {
+            id: p.id,
+            x: Math.round(p.x * 10) / 10, 
+            y: Math.round(p.y * 10) / 10,
+            vx: p.vx, vy: p.vy, dir: p.dir,
+            width: p.width, height: p.height,
+            isSpectator: p.isSpectator,
+            imageName: p.imageName, displayName: p.displayName,
+            damage: p.damage, score: p.score,
+            blockGauge: p.blockGauge, isBlockBroken: p.isBlockBroken,
+            hitStunTimer: p.hitStunTimer, attackTimer: p.attackTimer, currentAttack: p.currentAttack,
+            isGlowing: p.isGlowing, isUltimate: p.isUltimate, isBlocking: p.isBlocking,
+            isGrounded: p.isGrounded, respawnTimer: p.respawnTimer,
+            emojiWheelOpen: p.emojiWheelOpen, selectedEmojiIndex: p.selectedEmojiIndex,
+            activeEmoji: p.activeEmoji, activeEmojiTimer: p.activeEmojiTimer
+        };
+    }
+    
+    while (gameState.recentEvents.length > 20) gameState.recentEvents.shift();
+    
+    return {
+        status: gameState.status, timeLeft: gameState.timeLeft,
+        countdownTimer: gameState.countdownTimer, gameOverTimer: gameState.gameOverTimer,
+        currentMap: gameState.currentMap, eventCounter: gameState.eventCounter,
+        recentEvents: gameState.recentEvents, items: gameState.items,
+        players: lightPlayers
+    };
+}
+
+function broadcastState() { 
+    let compressedState = getLightweightState();
+    connections.forEach(conn => conn.send({ type: 'state', state: compressedState })); 
+}
 
 function sendInputToHost() { if (hostConnection && hostConnection.open) hostConnection.send({ type: 'input', keys: keys }); }
 </script>
