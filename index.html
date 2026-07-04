@@ -404,7 +404,16 @@ function startGameUI() {
     document.getElementById('char-select-screen').style.display = 'none'; 
     document.getElementById('game-container').style.display = 'block'; 
     
-    // 💡 화면 리사이징 강제 적용 및 설정 자동 숨김 해제
+    // 접속한 기기가 모바일인지 확인하는 로직
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
+    // 모바일 환경일 때만 전체화면 강제 진입 (주소창 숨김)
+    if (isMobile) {
+        let elem = document.documentElement;
+        if (elem.requestFullscreen) { elem.requestFullscreen().catch(e => console.log(e)); }
+        else if (elem.webkitRequestFullscreen) { elem.webkitRequestFullscreen().catch(e => console.log(e)); }
+    }
+
     resizeCanvas();
     
     if (mySelectedChar === '관전') {
@@ -433,15 +442,24 @@ const joyBase = document.getElementById('joystick-base'); const joyKnob = docume
 let joyActive = false; let joyCenter = { x: 0, y: 0 };
 joyBase.addEventListener('touchstart', e => { unlockAudio(); e.preventDefault(); joyActive = true; let rect = joyBase.getBoundingClientRect(); joyCenter = { x: rect.left + rect.width/2, y: rect.top + rect.height/2 }; updateJoystick(e.changedTouches[0]); }, {passive: false});
 joyBase.addEventListener('touchmove', e => { if(joyActive) { e.preventDefault(); updateJoystick(e.changedTouches[0]); } }, {passive: false});
-const resetJoystick = (e) => { if(!joyActive) return; e.preventDefault(); joyActive = false; joyKnob.style.transform = `translate(-50%, -50%)`; keys.ArrowLeft = keys.ArrowRight = false; keys.ArrowUp = keys.ArrowDown = false; };
-joyBase.addEventListener('touchend', resetJoystick, {passive: false}); joyBase.addEventListener('touchcancel', resetJoystick, {passive: false});
+const resetJoystick = (e) => { 
+    if(!joyActive) return; e.preventDefault(); joyActive = false; 
+    joyKnob.style.transform = `translate(-50%, -50%)`; 
+    keys.ArrowLeft = false; keys.ArrowRight = false; 
+    // keys.ArrowUp = keys.ArrowDown = false; 부분 삭제됨
+};
+joyBase.addEventListener('touchend', resetJoystick, {passive: false}); 
+joyBase.addEventListener('touchcancel', resetJoystick, {passive: false});
+
 function updateJoystick(touch) { 
     let dx = touch.clientX - joyCenter.x; let dy = touch.clientY - joyCenter.y; 
     let dist = Math.sqrt(dx*dx + dy*dy); let maxR = 40; 
     if(dist > maxR) { dx = (dx/dist)*maxR; dy = (dy/dist)*maxR; } 
     joyKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`; 
-    keys.ArrowLeft = dx < -15; keys.ArrowRight = dx > 15; 
-    keys.ArrowUp = dy < -15; keys.ArrowDown = dy > 15;
+    
+    keys.ArrowLeft = dx < -15; 
+    keys.ArrowRight = dx > 15; 
+    // 조이패드 상하(dy) 조작 로직 완전히 제거됨 (버튼으로만 동작)
 }
 
 function bindBtn(id, key) {
