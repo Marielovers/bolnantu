@@ -923,23 +923,20 @@ function hostLoop() {
             p.hitStunTimer--; p.isBlocking = false; p.attackTimer = 0; 
         } else {
             if (p.activeEmojiTimer > 0) p.activeEmojiTimer--;
-            else p.activeEmoji = -1; // 수정됨: 타이머 끝나면 -1 (없음) 처리
+            else p.activeEmoji = -1;
 
             if (!p.isBlockBroken && canAttack) {
                 if (pKeys.c && !p.isGlowing && !p.isUltimate) {
                     p.cKeyHoldTimer++;
-                    if (p.cKeyHoldTimer > 20) p.emojiWheelOpen = true; 
-                } else {
-                    if (p.emojiWheelOpen) {
-                        if (p.selectedEmojiIndex !== -1) {
-                            // 수정됨: 텍스트가 아닌 '인덱스 숫자'만을 네트워크로 보냅니다.
-                            p.activeEmoji = p.selectedEmojiIndex;
-                            p.activeEmojiTimer = 120; 
-                        }
-                        p.emojiWheelOpen = false;
+                    if (p.cKeyHoldTimer > 20 && !p.emojiWheelOpen) {
+                        p.emojiWheelOpen = true; 
                     }
+                    else if (p.emojiWheelOpen && p.cKeyHoldTimer === 1) {
+                        p.emojiWheelOpen = false;
+                        p.selectedEmojiIndex = -1;
+                    }
+                } else {
                     p.cKeyHoldTimer = 0;
-                    p.selectedEmojiIndex = -1;
                 }
             }
 
@@ -953,8 +950,12 @@ function hostLoop() {
                 if (dx !== 0 || dy !== 0) {
                     let angle = Math.atan2(dy, dx) + Math.PI / 2;
                     if (angle < 0) angle += Math.PI * 2;
+                    
                     p.selectedEmojiIndex = Math.round(angle / (Math.PI / 4)) % 8;
-                } else {
+                    p.activeEmoji = p.selectedEmojiIndex;
+                    p.activeEmojiTimer = 120; 
+                    
+                    p.emojiWheelOpen = false; 
                     p.selectedEmojiIndex = -1;
                 }
             }
