@@ -15,10 +15,9 @@
         
         #ui-header { background: #1a1a1a; padding: 5px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; z-index: 2000; position: relative; transition: background 0.3s; pointer-events: auto; }
 
-        /* 설정 숨김 시 적용될 투명 클래스 */
         #ui-header.transparent { background: transparent; border-bottom: none; pointer-events: none; }
-        #ui-header.transparent > * { pointer-events: auto; } /* 버튼과 글씨만 터치 가능하게 유지 */
-        #ui-header.transparent span { opacity: 0.6; text-shadow: 1px 1px 3px black; } /* 글씨가 배경에 묻히지 않게 그림자 추가 */
+        #ui-header.transparent > * { pointer-events: auto; } 
+        #ui-header.transparent span { opacity: 0.6; text-shadow: 1px 1px 3px black; } 
         #btn-ui-toggle { padding: 4px 10px; font-size: 12px; background: #444; border: 1px solid #666; border-radius: 4px; color: white; cursor: pointer; font-family: 'OneMobilePop', sans-serif; }
         
         #ui-content { padding: 10px; background: #222; display: flex; justify-content: center; gap: 10px; align-items: center; border-bottom: 2px solid #444; z-index: 1999; position: relative; flex-wrap: wrap; }
@@ -44,7 +43,6 @@
         .char-btn { width: 60px; height: 60px; border: 3px solid transparent; border-radius: 10px; cursor: pointer; background-size: contain; background-position: center; background-repeat: no-repeat; background-color: #444; transition: 0.2s; flex-shrink: 0; }
         .char-btn.selected { border-color: #00ff00; background-color: #555; transform: scale(1.1); box-shadow: 0 0 15px #00ff00; }
         
-        /* 💡게임 캔버스 영역 모바일 완벽 자동 스케일링 설정 */
         #game-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: none; background: #000; z-index: 100; overflow: hidden; }
         canvas { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: block; box-shadow: 0 0 20px rgba(0,0,0,0.8); }
         
@@ -107,6 +105,12 @@
     </div>
     
     <div class="setting-group">
+        <label>캐릭터 교체: 
+            <select id="setting-char" onchange="changeCharacterFromSettings()"></select>
+        </label>
+    </div>
+    
+    <div class="setting-group">
         <label>BGM <input type="range" id="vol-bgm" min="0" max="100" value="30" onchange="updateSettings()"></label>
         <label>효과음 <input type="range" id="vol-sfx" min="0" max="100" value="30" onchange="updateSettings()"></label>
     </div>
@@ -158,7 +162,7 @@
 <div id="ranking-screen">
     <h1>🏆 게임 결과 🏆</h1>
     <table class="rank-table" id="rank-table-body"></table>
-    <button onclick="location.reload()" style="margin-top:20px; font-family: 'OneMobilePop';">처음으로</button>
+    <button id="btn-restart" onclick="handleRestart()" style="margin-top:20px; font-family: 'OneMobilePop';">대기실로 돌아가기</button>
 </div>
 
 <script>
@@ -201,7 +205,6 @@ window.addEventListener('mousedown', unlockAudio);
 window.addEventListener('touchstart', unlockAudio, {passive: true});
 window.addEventListener('keydown', unlockAudio);
 
-// ZzFX 신디사이저 엔진
 const zzfx = (...t) => zzfxP(...zzfxG(...t)); 
 const zzfxP = (...t) => {
     if (!zzfxX || !masterGain) return;
@@ -327,12 +330,10 @@ function toggleUI() {
     const btn = document.getElementById('btn-ui-toggle');
     
     if (content.classList.contains('hidden')) {
-        // 설정창 켜기
         content.classList.remove('hidden');
         header.classList.remove('transparent');
         btn.innerText = "⚙️ 설정 숨기기";
     } else {
-        // 설정창 숨기기
         content.classList.add('hidden');
         header.classList.add('transparent');
         btn.innerText = "⚙️ 설정 보기";
@@ -351,7 +352,6 @@ function updateSettings() {
     if (masterGain) masterGain.gain.value = zzfxV; 
 }
 
-// 💡 캔버스를 창 크기에 맞춰 자동 리사이징하는 함수
 function resizeCanvas() {
     const container = document.getElementById('game-container');
     const canvas = document.getElementById('gameCanvas');
@@ -363,11 +363,9 @@ function resizeCanvas() {
     let currentRatio = w / h;
     
     if (currentRatio > targetRatio) {
-        // 화면이 상대적으로 가로로 더 길 때: 세로 길이에 맞추기
         canvas.style.height = h + 'px';
         canvas.style.width = (h * targetRatio) + 'px';
     } else {
-        // 화면이 상대적으로 세로로 더 길 때: 가로 길이에 맞추기
         canvas.style.width = w + 'px';
         canvas.style.height = (w / targetRatio) + 'px';
     }
@@ -379,9 +377,16 @@ window.onload = () => {
     if (roomCode) document.getElementById('join-id').value = roomCode;
 
     const grid = document.getElementById('char-grid');
+    const charSelect = document.getElementById('setting-char');
+
     availableCharacters.forEach(charName => {
         let btn = document.createElement('div'); btn.className = 'char-btn'; 
         
+        let option = document.createElement('option');
+        option.value = charName;
+        option.text = charName;
+        charSelect.appendChild(option);
+
         if (charName === '관전') {
             btn.style.backgroundColor = '#555';
             btn.innerHTML = '<div style="font-size:24px; margin-bottom:2px;">🎥</div><div style="font-size:12px; font-weight:bold;">관전</div>';
@@ -395,19 +400,52 @@ window.onload = () => {
             unlockAudio();
             document.querySelectorAll('.char-btn').forEach(b => b.classList.remove('selected'));
             btn.classList.add('selected'); mySelectedChar = charName;
+            charSelect.value = charName; 
         };
         grid.appendChild(btn);
     });
+    charSelect.value = mySelectedChar;
 };
+
+// 캐릭터 정보 업데이트 헬퍼
+function updatePlayerCharacter(player, charName) {
+    player.imageName = charName;
+    player.displayName = parseName(charName);
+    player.isSpectator = (charName === '관전');
+    player.width = player.isSpectator ? 0 : 64;
+    player.height = player.isSpectator ? 0 : 64;
+}
+
+// 설정창에서 캐릭터 실시간 변경
+function changeCharacterFromSettings() {
+    const selectElem = document.getElementById('setting-char');
+    const newChar = selectElem.value;
+
+    if (peer && peer.open && gameState.status !== 'lobby') {
+        alert("게임이 시작된 후에는 캐릭터를 변경할 수 없습니다.");
+        selectElem.value = mySelectedChar; 
+        return;
+    }
+
+    mySelectedChar = newChar;
+
+    if (!peer || !peer.open) return;
+
+    if (isHost) {
+        if (gameState.players[myId]) {
+            updatePlayerCharacter(gameState.players[myId], newChar);
+            broadcastState();
+        }
+    } else if (hostConnection && hostConnection.open) {
+        hostConnection.send({ type: 'change_char', charName: newChar });
+    }
+}
 
 function startGameUI() { 
     document.getElementById('char-select-screen').style.display = 'none'; 
     document.getElementById('game-container').style.display = 'block'; 
     
-    // 접속한 기기가 모바일인지 확인하는 로직
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    
-    // 모바일 환경일 때만 전체화면 강제 진입 (주소창 숨김)
     if (isMobile) {
         let elem = document.documentElement;
         if (elem.requestFullscreen) { elem.requestFullscreen().catch(e => console.log(e)); }
@@ -446,7 +484,6 @@ const resetJoystick = (e) => {
     if(!joyActive) return; e.preventDefault(); joyActive = false; 
     joyKnob.style.transform = `translate(-50%, -50%)`; 
     keys.ArrowLeft = false; keys.ArrowRight = false; 
-    // keys.ArrowUp = keys.ArrowDown = false; 부분 삭제됨
 };
 joyBase.addEventListener('touchend', resetJoystick, {passive: false}); 
 joyBase.addEventListener('touchcancel', resetJoystick, {passive: false});
@@ -459,7 +496,6 @@ function updateJoystick(touch) {
     
     keys.ArrowLeft = dx < -15; 
     keys.ArrowRight = dx > 15; 
-    // 조이패드 상하(dy) 조작 로직 완전히 제거됨 (버튼으로만 동작)
 }
 
 function bindBtn(id, key) {
@@ -471,18 +507,16 @@ function bindBtn(id, key) {
 bindBtn('btn-up', 'ArrowUp'); bindBtn('btn-down', 'ArrowDown'); bindBtn('btn-z', 'z'); bindBtn('btn-x', 'x'); bindBtn('btn-c', 'c');
 
 /**
- * 3. 💡 게임 상태 정의 (렉 최적화 적용: 이펙트 통신 분리)
+ * 3. 게임 상태 정의 
  */
 const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d');
 const GRAVITY = 0.8; const MAX_FALL_SPEED = 15; const MAP_W = 1600; const MAP_H = 1200;
 const platforms = [{ x: 300, y: 1000, w: 1000, h: 200 }, { x: 100, y: 700, w: 300, h: 20 }, { x: 1200, y: 700, w: 300, h: 20 }, { x: 650, y: 440, w: 300, h: 20 }];
 
-// gameState에서 particles 등 무거운 데이터를 완전히 제거하고 가벼운 이벤트 구조로 통신합니다.
 let gameState = { status: 'lobby', timeLeft: 0, countdownTimer: 0, gameOverTimer: 0, players: {}, items: [], eventCounter: 0, recentEvents: [] };
 let myId = null; let isHost = false; let peer = null; let connections = []; let hostConnection = null; let rankingShown = false;
 let screenShake = 0; let clientLastStatus = null; let clientClimaxTriggered = false;
 
-// 💡 렉 발생의 원인이었던 이펙트 데이터는 이제 네트워크를 타지 않고 각자의 컴퓨터에만 저장됩니다.
 let localParticles = [];
 let localImpacts = [];
 let localShockwaves = [];
@@ -509,8 +543,7 @@ class Player {
 }
 
 /**
- * 4. 이펙트 생성 함수 (이벤트 버스 방식)
- * 이제 파티클을 100개 만들어도 네트워크로는 단 1줄의 짧은 이벤트 문장만 전송됩니다.
+ * 4. 이펙트 생성 함수
  */
 function spawnHitParticles(x, y, power, attackType) {
     gameState.recentEvents.push({ id: ++gameState.eventCounter, type: 'hit', x, y, power, attackType });
@@ -528,7 +561,6 @@ function processMeteorPhysics(attacker, powerRatio) {
     let shockX = attacker.x + attacker.width/2; let shockY = attacker.y + attacker.height;
     let range = 400 * powerRatio; let baseDmg = 25 * powerRatio; let baseKnockback = 18 * powerRatio;
     
-    // 시각적 효과 및 사운드 발생용 이벤트 전송
     gameState.recentEvents.push({ id: ++gameState.eventCounter, type: 'meteor', x: shockX, y: shockY, powerRatio });
     
     if (attacker.isUltimate) { baseDmg *= 2; baseKnockback *= 1.5; range *= 1.5; }
@@ -546,7 +578,7 @@ function processMeteorPhysics(attacker, powerRatio) {
                 target.blockGauge -= baseDmg * 3; target.vx += Math.sign(dx) * 6 * (target.isUltimate ? 0.25 : 1);
                 if(target.blockGauge <= 0 && !target.isBlockBroken) { 
                     target.isBlockBroken = true; if(!target.isUltimate) target.hitStunTimer = 40; 
-                    spawnGlassShatter(target.x + target.width/2, target.y + target.height/2, target.width);
+                    spawnGlassShatter(target.x + target.width/2, target.y + target.height/2, target.height); // 💡 세로 기준
                 }
                 spawnHitParticles(target.x + target.width/2, target.y + target.height/2, baseDmg * 0.5, 'heavy');
             } else {
@@ -593,6 +625,35 @@ function triggerStartGame() {
             p.isUltimate = false; p.ultimateTimer = 0; p.lastAttackerId = null; p.respawnTimer = 0;
         }
         gameState.items = [];
+    }
+}
+
+function handleRestart() {
+    if (isHost) {
+        let minutes = parseInt(document.getElementById('time-limit').value);
+        if (isNaN(minutes) || minutes < 1) minutes = 3;
+        
+        gameState.status = 'lobby';
+        gameState.timeLeft = minutes * 60 * 60;
+        
+        for (let id in gameState.players) {
+            let p = gameState.players[id];
+            if (p.isSpectator) continue;
+            p.x = MAP_W / 2 + (Math.random() * 200 - 100);
+            p.y = 800; 
+            p.vx = 0; p.vy = 0;
+            p.damage = 0; p.score = 0; p.blockGauge = 100; p.isBlockBroken = false;
+            p.hitStunTimer = 0; p.attackTimer = 0; p.currentAttack = null;
+            p.isUltimate = false; p.ultimateTimer = 0; p.lastAttackerId = null; p.respawnTimer = 0;
+            p.isGrounded = false; p.jumpCount = 0; p.airLightUsed = false; p.walkStep = 0;
+        }
+        gameState.items = [];
+        gameState.recentEvents = [];
+        gameState.eventCounter = 0;
+        
+        broadcastState();
+    } else {
+        alert("방장이 대기실로 복귀시킬 때까지 잠시만 기다려주세요.");
     }
 }
 
@@ -662,7 +723,7 @@ function hostLoop() {
                     p.isBlocking = true; p.blockGauge -= 1.5; p.vx = 0;
                     if(p.blockGauge <= 0 && !p.isBlockBroken) { 
                         p.isBlockBroken = true; if(!p.isUltimate) p.hitStunTimer = 40; 
-                        spawnGlassShatter(p.x + p.width/2, p.y + p.height/2, p.width);
+                        spawnGlassShatter(p.x + p.width/2, p.y + p.height/2, p.height); // 💡 세로 기준
                     }
                 } else { p.isBlocking = false; p.blockGauge = Math.min(100, p.blockGauge + 0.2); }
             }
@@ -724,7 +785,7 @@ function hostLoop() {
             }
         }
         
-        if (!oldGrounded && p.isGrounded && p.currentAttack === 'air_heavy') {
+        if (p.isGrounded && (p.currentAttack === 'air_heavy' || p.currentAttack === 'air_heavy_startup')) {
             p.currentAttack = 'air_heavy_landing'; p.attackTimer = 60; 
             let fallDist = Math.max(0, p.y - p.meteorStartY); let powerRatio = Math.max(0.3, Math.min(1.0, fallDist / (MAP_H / 2)));
             processMeteorPhysics(p, powerRatio); 
@@ -750,17 +811,16 @@ function hostLoop() {
         if (item && item.y > MAP_H + 100) gameState.items.splice(i, 1); 
     }
 
-    // 통신 배열 크기 방지 (메모리 최적화)
     while (gameState.recentEvents.length > 50) gameState.recentEvents.shift();
-
     broadcastState();
 }
 
 function processAttack(attacker, type) {
     let range, baseDmg, baseKnockback;
-    if (type === 'heavy') { range = attacker.width * 2.0; baseDmg = 16; baseKnockback = 12; }
-    else if (type === 'light') { range = attacker.width * 1.8; baseDmg = 5; baseKnockback = 4; }
-    else if (type === 'air_light') { range = attacker.width * 1.8; baseDmg = 8; baseKnockback = 6; } 
+    // 💡 attacker.width -> attacker.height 적용
+    if (type === 'heavy') { range = attacker.height * 2.0; baseDmg = 16; baseKnockback = 12; }
+    else if (type === 'light') { range = attacker.height * 1.8; baseDmg = 5; baseKnockback = 4; }
+    else if (type === 'air_light') { range = attacker.height * 1.8; baseDmg = 8; baseKnockback = 6; } 
     if (attacker.isUltimate) { baseDmg *= 2; baseKnockback *= 1.5; range *= 1.5; }
 
     for (let id in gameState.players) {
@@ -773,7 +833,8 @@ function processAttack(attacker, type) {
         if (isHit) { 
             if (target.isBlocking) {
                 target.blockGauge -= baseDmg * 3; target.vx += attacker.dir * 4 * (target.isUltimate ? 0.25 : 1); 
-                if(target.blockGauge <= 0 && !target.isBlockBroken) { target.isBlockBroken = true; if(!target.isUltimate) target.hitStunTimer = 40; spawnGlassShatter(target.x + target.width/2, target.y + target.height/2, target.width); }
+                // 💡 target.width -> target.height 적용
+                if(target.blockGauge <= 0 && !target.isBlockBroken) { target.isBlockBroken = true; if(!target.isUltimate) target.hitStunTimer = 40; spawnGlassShatter(target.x + target.width/2, target.y + target.height/2, target.height); }
                 spawnHitParticles(target.x + target.width/2 - attacker.dir*20, target.y + target.height/2, baseDmg * 0.5, type);
             } else {
                 target.damage += baseDmg; target.lastAttackerId = attacker.id; let knockbackMult = 1 + (target.damage / 30);
@@ -853,7 +914,19 @@ function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     if (clientLastStatus !== gameState.status) {
-        if (gameState.status === 'lobby') playCustomBGM('waiting'); 
+        if (gameState.status === 'lobby') {
+            playCustomBGM('waiting');
+            document.getElementById('ranking-screen').style.display = 'none';
+            rankingShown = false;
+            clientClimaxTriggered = false;
+            localParticles = []; localImpacts = []; localShockwaves = []; localPillars = [];
+            localLastEventId = 0;
+            
+            if (isHost) {
+                document.getElementById('btn-start').style.display = 'inline-block';
+                document.getElementById('time-limit').disabled = false;
+            }
+        }
         else if (gameState.status === 'countdown') playCustomBGM('playing'); 
         else if (gameState.status === 'gameover_anim') { playCustomBGM('stop'); playSFX('fanfare'); }
         clientLastStatus = gameState.status;
@@ -945,9 +1018,10 @@ function render() {
         }
         ctx.scale(-p.dir, 1); 
 
+        // 💡 p.width -> p.height 적용
         if (p.isUltimate) { 
-            let pulse = Math.sin(Date.now() / 150); ctx.fillStyle = `rgba(255, 50, 50, ${0.4 + 0.2*pulse})`; ctx.beginPath(); ctx.arc(0, 0, p.width * 0.6 + pulse*10, 0, Math.PI*2); ctx.fill();
-            if(Math.random() < 0.3) { ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo((Math.random()-0.5)*p.width*1.5, (Math.random()-0.5)*p.height*1.5); ctx.lineTo((Math.random()-0.5)*p.width*1.5, (Math.random()-0.5)*p.height*1.5); ctx.stroke(); }
+            let pulse = Math.sin(Date.now() / 150); ctx.fillStyle = `rgba(255, 50, 50, ${0.4 + 0.2*pulse})`; ctx.beginPath(); ctx.arc(0, 0, p.height * 0.6 + pulse*10, 0, Math.PI*2); ctx.fill();
+            if(Math.random() < 0.3) { ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo((Math.random()-0.5)*p.height*1.5, (Math.random()-0.5)*p.height*1.5); ctx.lineTo((Math.random()-0.5)*p.height*1.5, (Math.random()-0.5)*p.height*1.5); ctx.stroke(); }
             ctx.shadowBlur = 40; ctx.shadowColor = "red"; 
         } else if (p.isGlowing) { ctx.shadowBlur = 30; ctx.shadowColor = `hsl(${Date.now()/5 % 360}, 100%, 50%)`; }
 
@@ -955,25 +1029,28 @@ function render() {
         if (img && img.complete) ctx.drawImage(img, -p.width/2, -p.height/2, p.width, p.height); ctx.globalAlpha = 1.0; 
         ctx.restore();
 
+        // 💡 p.width -> p.height 적용
         if (p.hitStunTimer > 0 && p.isBlockBroken && !p.isUltimate) {
             let dizzyTime = Date.now() / 150; ctx.save(); ctx.translate(p.x + p.width/2, p.y - 10);
-            for(let i=0; i<3; i++) { let angle = dizzyTime + (i * Math.PI*2/3); let sx = Math.cos(angle) * p.width * 0.4; let sy = Math.sin(angle) * 5; ctx.beginPath(); ctx.arc(sx, sy, 4, 0, Math.PI*2); ctx.fillStyle = '#ffcc00'; ctx.shadowBlur = 10; ctx.shadowColor = 'yellow'; ctx.fill(); } ctx.restore();
+            for(let i=0; i<3; i++) { let angle = dizzyTime + (i * Math.PI*2/3); let sx = Math.cos(angle) * p.height * 0.4; let sy = Math.sin(angle) * 5; ctx.beginPath(); ctx.arc(sx, sy, 4, 0, Math.PI*2); ctx.fillStyle = '#ffcc00'; ctx.shadowBlur = 10; ctx.shadowColor = 'yellow'; ctx.fill(); } ctx.restore();
         }
 
+        // 💡 각종 공격 이펙트 크기 세로(p.height)로 통일
         if (p.currentAttack === 'heavy' && p.attackTimer <= 25 && p.attackTimer > 15) {
-            let prog = (25 - p.attackTimer) / 10; ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.scale(p.dir, 1); ctx.beginPath(); ctx.arc(0, 0, p.width * 1.6, -Math.PI/2, -Math.PI/2 + Math.PI * 1.6 * prog, false); ctx.lineWidth = 40 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(255, 50, 0, ${Math.sin(prog * Math.PI)})`; ctx.shadowBlur = 30; ctx.shadowColor = 'red'; ctx.lineCap = 'round'; ctx.stroke(); ctx.beginPath(); ctx.arc(0, 0, p.width * 1.4, -Math.PI/2, -Math.PI/2 + Math.PI * 1.4 * prog, false); ctx.lineWidth = 20 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(255, 255, 100, ${Math.sin(prog * Math.PI)})`; ctx.shadowBlur = 10; ctx.shadowColor = 'white'; ctx.stroke(); ctx.restore();
+            let prog = (25 - p.attackTimer) / 10; ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.scale(p.dir, 1); ctx.beginPath(); ctx.arc(0, 0, p.height * 1.6, -Math.PI/2, -Math.PI/2 + Math.PI * 1.6 * prog, false); ctx.lineWidth = 40 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(255, 50, 0, ${Math.sin(prog * Math.PI)})`; ctx.shadowBlur = 30; ctx.shadowColor = 'red'; ctx.lineCap = 'round'; ctx.stroke(); ctx.beginPath(); ctx.arc(0, 0, p.height * 1.4, -Math.PI/2, -Math.PI/2 + Math.PI * 1.4 * prog, false); ctx.lineWidth = 20 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(255, 255, 100, ${Math.sin(prog * Math.PI)})`; ctx.shadowBlur = 10; ctx.shadowColor = 'white'; ctx.stroke(); ctx.restore();
         } else if (p.currentAttack === 'light' && p.attackTimer < 10) {
-            let atkP = 1 - (p.attackTimer/10); ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.scale(p.dir, 1); ctx.beginPath(); ctx.moveTo(p.width*0.2, 0); ctx.lineTo(p.width*0.4 + 100*atkP, -25 + 50*atkP); ctx.lineTo(p.width*0.5 + 150*atkP, 0); ctx.lineTo(p.width*0.4 + 100*atkP, 25 - 50*atkP); ctx.closePath(); let grd = ctx.createLinearGradient(0, 0, p.width*2, 0); grd.addColorStop(0, `rgba(0, 255, 255, 0)`); grd.addColorStop(0.5, `rgba(0, 255, 255, ${1 - atkP})`); grd.addColorStop(1, `rgba(255, 255, 255, ${1 - atkP})`); ctx.fillStyle = grd; ctx.shadowBlur = 20; ctx.shadowColor = 'cyan'; ctx.fill(); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(p.width*2 * atkP, 0); ctx.lineWidth = 5 * (1 - atkP); ctx.strokeStyle = `rgba(255, 255, 255, ${1 - atkP})`; ctx.stroke(); ctx.restore();
+            let atkP = 1 - (p.attackTimer/10); ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.scale(p.dir, 1); ctx.beginPath(); ctx.moveTo(p.height*0.2, 0); ctx.lineTo(p.height*0.4 + 100*atkP, -25 + 50*atkP); ctx.lineTo(p.height*0.5 + 150*atkP, 0); ctx.lineTo(p.height*0.4 + 100*atkP, 25 - 50*atkP); ctx.closePath(); let grd = ctx.createLinearGradient(0, 0, p.height*2, 0); grd.addColorStop(0, `rgba(0, 255, 255, 0)`); grd.addColorStop(0.5, `rgba(0, 255, 255, ${1 - atkP})`); grd.addColorStop(1, `rgba(255, 255, 255, ${1 - atkP})`); ctx.fillStyle = grd; ctx.shadowBlur = 20; ctx.shadowColor = 'cyan'; ctx.fill(); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(p.height*2 * atkP, 0); ctx.lineWidth = 5 * (1 - atkP); ctx.strokeStyle = `rgba(255, 255, 255, ${1 - atkP})`; ctx.stroke(); ctx.restore();
         } else if (p.currentAttack === 'air_light' && p.attackTimer < 12) {
-            let prog = (12 - p.attackTimer) / 12; ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.scale(p.dir, 1); ctx.beginPath(); ctx.arc(0, 0, p.width * 1.3, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * prog, false); ctx.lineWidth = 25 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(50, 255, 150, ${Math.sin(prog * Math.PI)})`; ctx.shadowBlur = 20; ctx.shadowColor = '#32ff96'; ctx.stroke(); ctx.beginPath(); ctx.arc(0, 0, p.width * 1.1, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * prog, false); ctx.lineWidth = 10 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(255, 255, 255, ${Math.sin(prog * Math.PI)})`; ctx.stroke(); ctx.restore();
+            let prog = (12 - p.attackTimer) / 12; ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.scale(p.dir, 1); ctx.beginPath(); ctx.arc(0, 0, p.height * 1.3, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * prog, false); ctx.lineWidth = 25 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(50, 255, 150, ${Math.sin(prog * Math.PI)})`; ctx.shadowBlur = 20; ctx.shadowColor = '#32ff96'; ctx.stroke(); ctx.beginPath(); ctx.arc(0, 0, p.height * 1.1, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * prog, false); ctx.lineWidth = 10 * Math.sin(prog * Math.PI); ctx.strokeStyle = `rgba(255, 255, 255, ${Math.sin(prog * Math.PI)})`; ctx.stroke(); ctx.restore();
         } else if (p.currentAttack === 'air_heavy_startup') {
-            ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); let auraSize = p.width * (1 + Math.random()*0.5); ctx.beginPath(); ctx.arc(0, 0, auraSize, 0, Math.PI*2); ctx.fillStyle = `rgba(255, 100, 0, 0.4)`; ctx.shadowBlur = 30; ctx.shadowColor = 'red'; ctx.fill(); ctx.restore();
+            ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); let auraSize = p.height * (1 + Math.random()*0.5); ctx.beginPath(); ctx.arc(0, 0, auraSize, 0, Math.PI*2); ctx.fillStyle = `rgba(255, 100, 0, 0.4)`; ctx.shadowBlur = 30; ctx.shadowColor = 'red'; ctx.fill(); ctx.restore();
         } else if (p.currentAttack === 'air_heavy') {
             ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.beginPath(); ctx.moveTo(0, p.height/2); ctx.lineTo(-30, -p.height*1.5); ctx.lineTo(30, -p.height*1.5); ctx.closePath(); ctx.fillStyle = `rgba(255, 50, 0, ${0.6 + Math.random()*0.4})`; ctx.shadowBlur = 40; ctx.shadowColor = 'red'; ctx.fill(); ctx.restore();
         }
 
+        // 💡 쉴드 반경 또한 세로(p.height) 기준으로 통일
         if (p.isBlocking) {
-            ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.beginPath(); ctx.arc(0, 0, p.width * 0.8, 0, Math.PI * 2); let hue = (p.blockGauge / 100) * 200; let alpha = 0.2 + (p.blockGauge / 100) * 0.2; let grd = ctx.createRadialGradient(0, 0, p.width * 0.5, 0, 0, p.width * 0.8); grd.addColorStop(0, `hsla(${hue}, 100%, 50%, 0)`); grd.addColorStop(1, `hsla(${hue}, 100%, 60%, ${alpha})`); ctx.fillStyle = grd; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = `hsla(${hue}, 100%, 80%, ${alpha + 0.3})`; ctx.shadowBlur = 10; ctx.shadowColor = `hsl(${hue}, 100%, 50%)`; ctx.stroke(); ctx.restore();
+            ctx.save(); ctx.translate(p.x + p.width/2, p.y + p.height/2); ctx.beginPath(); ctx.arc(0, 0, p.height * 0.8, 0, Math.PI * 2); let hue = (p.blockGauge / 100) * 200; let alpha = 0.2 + (p.blockGauge / 100) * 0.2; let grd = ctx.createRadialGradient(0, 0, p.height * 0.5, 0, 0, p.height * 0.8); grd.addColorStop(0, `hsla(${hue}, 100%, 50%, 0)`); grd.addColorStop(1, `hsla(${hue}, 100%, 60%, ${alpha})`); ctx.fillStyle = grd; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = `hsla(${hue}, 100%, 80%, ${alpha + 0.3})`; ctx.shadowBlur = 10; ctx.shadowColor = `hsl(${hue}, 100%, 50%)`; ctx.stroke(); ctx.restore();
         }
 
         ctx.fillStyle = 'white'; ctx.strokeStyle = 'black'; ctx.lineWidth = 4; ctx.font = '16px "OneMobilePop", sans-serif'; ctx.textAlign = 'center'; ctx.strokeText(p.displayName, p.x + p.width/2, p.y - 35); ctx.fillText(p.displayName, p.x + p.width/2, p.y - 35);
@@ -1072,7 +1149,6 @@ function showRankingScreen() {
 function gameLoop() { 
     if (isHost) hostLoop(); else sendInputToHost(); 
     
-    // 네트워크 이벤트를 클라이언트에 동기화하여 이펙트를 그립니다.
     processNetworkEvents();
     updateLocalEffects();
     
@@ -1094,7 +1170,37 @@ function startHost() {
         document.getElementById('host-id').innerText = id; isHost = true; startGameUI(); 
         document.getElementById('btn-copy-link').style.display = 'inline-block'; document.getElementById('btn-start').style.display = 'inline-block';
         gameState.status = 'lobby'; gameState.timeLeft = minutes * 60 * 60; gameState.players[myId] = new Player(myId, mySelectedChar); 
-        peer.on('connection', conn => { connections.push(conn); conn.on('data', data => { if (data.type === 'join') gameState.players[conn.peer] = new Player(conn.peer, data.charName); else if (data.type === 'input') guestInputs[conn.peer] = data.keys; }); conn.on('close', () => { delete gameState.players[conn.peer]; }); });
+        
+        peer.on('connection', conn => { 
+            connections.push(conn); 
+            
+            conn.on('data', data => { 
+                if (data.type === 'join') {
+                    gameState.players[conn.peer] = new Player(conn.peer, data.charName); 
+                }
+                else if (data.type === 'input') {
+                    guestInputs[conn.peer] = data.keys; 
+                }
+                else if (data.type === 'change_char') {
+                    if (gameState.players[conn.peer] && gameState.status === 'lobby') {
+                        updatePlayerCharacter(gameState.players[conn.peer], data.charName);
+                        broadcastState();
+                    }
+                }
+            }); 
+            
+            conn.on('close', () => { 
+                delete gameState.players[conn.peer]; 
+                delete guestInputs[conn.peer];
+                connections = connections.filter(c => c.peer !== conn.peer);
+            });
+            
+            conn.on('error', () => {
+                delete gameState.players[conn.peer];
+                delete guestInputs[conn.peer];
+                connections = connections.filter(c => c.peer !== conn.peer);
+            });
+        });
         
         if (!isGameLoopRunning) {
             isGameLoopRunning = true;
@@ -1123,7 +1229,23 @@ function joinGame() {
     });
 }
 
-function broadcastState() { connections.forEach(conn => conn.send({ type: 'state', state: gameState })); }
+function broadcastState() { 
+    connections = connections.filter(conn => {
+        if (conn.open) {
+            conn.send({ type: 'state', state: gameState });
+            return true;
+        }
+        return false;
+    });
+
+    for (let id in gameState.players) {
+        if (id !== myId && !connections.some(c => c.peer === id)) {
+            delete gameState.players[id];
+            delete guestInputs[id]; 
+        }
+    }
+}
+
 function sendInputToHost() { if (hostConnection && hostConnection.open && gameState.status !== 'finished') hostConnection.send({ type: 'input', keys: keys }); }
 </script>
 </body>
