@@ -940,6 +940,7 @@ function hostLoop() {
                 }
             }
 
+      
             if (p.emojiWheelOpen) {
                 let dx = 0, dy = 0;
                 if (pKeys.ArrowUp) dy = -1;
@@ -952,11 +953,14 @@ function hostLoop() {
                     if (angle < 0) angle += Math.PI * 2;
                     
                     p.selectedEmojiIndex = Math.round(angle / (Math.PI / 4)) % 8;
+                } 
+                else if (p.selectedEmojiIndex !== -1) {
                     p.activeEmoji = p.selectedEmojiIndex;
                     p.activeEmojiTimer = 120; 
                     
-                    p.emojiWheelOpen = false; 
-                    p.selectedEmojiIndex = -1;
+                    p.emojiWheelOpen = false;  
+                    p.selectedEmojiIndex = -1; 
+                    p.cKeyHoldTimer = -999;    
                 }
             }
 
