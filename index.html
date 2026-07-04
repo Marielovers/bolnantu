@@ -32,7 +32,7 @@
             width: 80px; 
             vertical-align: middle; 
             margin: 0 5px; 
-            accent-color: #ff4757; 
+            accent-color: #3498db; 
             padding: 0; 
             background: transparent; 
             border: none; 
@@ -143,7 +143,7 @@
     </div>
 
     <div class="setting-group">
-        <button id="btn-host" onclick="startHost()">방장 만들기</button>
+        <button id="btn-host" onclick="startHost()">방 만들기</button>
         <span style="font-size: 14px;">코드: <span id="host-id">대기중</span></span>
         <button id="btn-copy-link" onclick="copyInviteLink()">🔗 복사</button>
     </div>
@@ -660,7 +660,8 @@ class Player {
         this.cKeyHoldTimer = 0;
         this.emojiWheelOpen = false;
         this.selectedEmojiIndex = -1;
-        this.activeEmoji = null;
+        // 수정됨: 통신 패킷 에러를 막기 위해 문자열(null/이모지) 대신 정수(-1)로 상태를 관리합니다.
+        this.activeEmoji = -1; 
         this.activeEmojiTimer = 0;
     }
 }
@@ -757,6 +758,9 @@ function triggerStartGame() {
             p.isUltimate = false; p.ultimateTimer = 0; p.isGlowing = false; p.lastAttackerId = null; p.respawnTimer = 0;
             p.width = p.isSpectator ? 0 : 64;
             p.height = p.isSpectator ? 0 : 64;
+            // 게임 시작 시 이모지 초기화
+            p.activeEmoji = -1;
+            p.activeEmojiTimer = 0;
         }
         gameState.items = [];
     }
@@ -788,6 +792,8 @@ function handleRestart() {
             p.isGrounded = false; p.jumpCount = 0; p.airLightUsed = false; p.walkStep = 0;
             p.width = 64;
             p.height = 64;
+            p.activeEmoji = -1;
+            p.activeEmojiTimer = 0;
         }
         gameState.items = [];
         gameState.recentEvents = [];
@@ -917,7 +923,7 @@ function hostLoop() {
             p.hitStunTimer--; p.isBlocking = false; p.attackTimer = 0; 
         } else {
             if (p.activeEmojiTimer > 0) p.activeEmojiTimer--;
-            else p.activeEmoji = null;
+            else p.activeEmoji = -1; // 수정됨: 타이머 끝나면 -1 (없음) 처리
 
             if (!p.isBlockBroken && canAttack) {
                 if (pKeys.c && !p.isGlowing && !p.isUltimate) {
@@ -926,8 +932,8 @@ function hostLoop() {
                 } else {
                     if (p.emojiWheelOpen) {
                         if (p.selectedEmojiIndex !== -1) {
-                            const emojis = ['😀', '😂', '😎', '😍', '🤔', '😭', '😡', '👍'];
-                            p.activeEmoji = emojis[p.selectedEmojiIndex];
+                            // 수정됨: 텍스트가 아닌 '인덱스 숫자'만을 네트워크로 보냅니다.
+                            p.activeEmoji = p.selectedEmojiIndex;
                             p.activeEmojiTimer = 120; 
                         }
                         p.emojiWheelOpen = false;
@@ -1128,7 +1134,6 @@ function hostLoop() {
         if (item && item.y > MAP_H + 100) gameState.items.splice(i, 1); 
     }
 
-    // [최적화 1] 호스트 렌더링 프레임과 네트워크 전송 틱을 분리
     let nowTime = Date.now();
     if (nowTime - lastNetworkTick >= NETWORK_TICK_RATE) {
         broadcastState();
@@ -1468,23 +1473,29 @@ function render() {
         ctx.fillStyle = p.damage > 100 ? '#ff3333' : (p.damage > 50 ? '#ffff33' : 'white'); ctx.font = '26px "OneMobilePop", sans-serif'; ctx.strokeText(`${Math.floor(p.damage)}%`, p.x + p.width/2, p.y - 10); ctx.fillText(`${Math.floor(p.damage)}%`, p.x + p.width/2, p.y - 10);
         ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(p.x, p.y + p.height + 15, p.width, 8); ctx.fillStyle = p.isBlockBroken ? '#555' : (p.blockGauge > 30 ? '#00ffff' : '#ff0000'); ctx.fillRect(p.x, p.y + p.height + 15, p.width * (p.blockGauge / 100), 8);
 
-        if (p.activeEmoji && p.activeEmojiTimer > 0) {
-            ctx.save();
-            ctx.translate(p.x + p.width/2, p.y - 70); 
-            let bob = Math.sin(p.activeEmojiTimer * 0.15) * 4;
-            ctx.translate(0, bob);
+        // 수정됨: 클라이언트에서 인덱스 번호를 다시 이모지 문자열로 변환하여 그립니다.
+        if (p.activeEmoji !== undefined && p.activeEmoji !== null && p.activeEmoji !== -1 && p.activeEmojiTimer > 0) {
+            const emojis = ['😀', '😂', '😎', '😍', '🤔', '😭', '😡', '👍'];
+            let emojiStr = emojis[p.activeEmoji];
             
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-            ctx.beginPath();
-            ctx.arc(0, 0, 22, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.fillStyle = '#000';
-            ctx.font = '26px Arial, sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(p.activeEmoji, 0, 2); 
-            ctx.restore();
+            if (emojiStr) {
+                ctx.save();
+                ctx.translate(p.x + p.width/2, p.y - 70); 
+                let bob = Math.sin(p.activeEmojiTimer * 0.15) * 4;
+                ctx.translate(0, bob);
+                
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                ctx.beginPath();
+                ctx.arc(0, 0, 22, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = '#000';
+                ctx.font = '26px Arial, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(emojiStr, 0, 2); 
+                ctx.restore();
+            }
         }
 
         if (p.emojiWheelOpen && id === myId) {
@@ -1614,19 +1625,16 @@ function showRankingScreen() {
     rankingDiv.style.display = 'block';
 }
 
-// [최적화 3] 클라이언트 보간 (서버 좌표와 클라이언트 렌더링 좌표를 부드럽게 맞춤)
 function clientInterpolation() {
     if (isHost) return;
     for (let id in gameState.players) {
         let p = gameState.players[id];
         if (p.targetX !== undefined && p.targetY !== undefined) {
-            // 기초 로컬 예측: 내가 조작 중일 때 방향키에 따라 캐릭터 방향(dir) 즉각 전환
             if (id === myId) {
                 if (keys.ArrowLeft && p.attackTimer === 0 && !p.isBlocking && !p.emojiWheelOpen) p.dir = -1;
                 if (keys.ArrowRight && p.attackTimer === 0 && !p.isBlocking && !p.emojiWheelOpen) p.dir = 1;
             }
             
-            // 순간이동(부활 등) 처리: 너무 멀면 즉시 스냅
             let dist = Math.abs(p.targetX - p.x) + Math.abs(p.targetY - p.y);
             if (dist > 300) {
                 p.x = p.targetX;
@@ -1839,7 +1847,6 @@ function joinGame() {
                     localLastEventId = data.state.eventCounter;
                     gameState = data.state; 
                 } else {
-                    // [최적화 3] 데이터 수신 시, 즉각 덮어쓰지 않고 보간을 위해 x, y값을 분리 저장합니다.
                     let newPlayers = data.state.players;
                     for (let pid in newPlayers) {
                         if (gameState.players[pid]) {
@@ -1848,7 +1855,6 @@ function joinGame() {
                             
                             Object.assign(gameState.players[pid], newPlayers[pid]);
                             
-                            // 렌더링에 사용될 실제 x,y는 유지하고 목표 지점(target)만 최신화
                             gameState.players[pid].targetX = newPlayers[pid].x;
                             gameState.players[pid].targetY = newPlayers[pid].y;
                             gameState.players[pid].x = oldX;
@@ -1860,12 +1866,10 @@ function joinGame() {
                         }
                     }
                     
-                    // 나간 플레이어 정리
                     for (let pid in gameState.players) {
                         if (!newPlayers[pid]) delete gameState.players[pid];
                     }
                     
-                    // 기타 게임 상태 동기화
                     gameState.status = data.state.status;
                     gameState.timeLeft = data.state.timeLeft;
                     gameState.countdownTimer = data.state.countdownTimer;
@@ -1893,7 +1897,6 @@ function joinGame() {
     });
 }
 
-// [최적화 2] 페이로드 경량화: 네트워크 전송 시 필수 상태값만 압축해서 보냅니다.
 function getLightweightState() {
     let lightPlayers = {};
     for (let id in gameState.players) {
