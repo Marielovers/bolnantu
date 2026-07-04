@@ -27,7 +27,7 @@
         button:hover, select:hover { background: #555; box-shadow: 0 0 10px rgba(255,255,255,0.2); }
         button:disabled { background: #666; cursor: not-allowed; color: #999; }
         input[type="number"] { width: 50px; text-align: center; }
-        input[type="range"] { width: 70px; vertical-align: middle; }
+        input[type="range"] { width: 80px; vertical-align: middle; margin: 0 5px; accent-color: #ff4757; }
         #host-id { color: #0f0; letter-spacing: 1px; }
         
         .setting-group { border-left: 1px solid #555; padding-left: 10px; display: flex; align-items: center; gap: 5px; font-size: 13px; }
@@ -190,6 +190,10 @@ let autoStartTimer = 0;
 let autoRestartTimer = 0;
 let clientConnectionStatus = 'idle';
 
+let firstStateReceived = false;
+let sfxFadeInStart = Date.now();
+let targetSfxVolume = 0.15; 
+
 function toggleAutoStart() {
     autoStartEnabled = document.getElementById('setting-auto-start').checked;
     if (autoStartEnabled && gameState.status === 'lobby') {
@@ -201,8 +205,8 @@ function toggleAutoStart() {
 
 let zzfxX, zzfxR = 44100;
 let masterGain; 
-let zzfxV = 0.3; 
-let bgmVolume = 0.3; 
+let zzfxV = 0.15; 
+let bgmVolume = 0.15; 
 let audioUnlocked = false; 
 
 function unlockAudio() {
@@ -331,7 +335,7 @@ function playCustomBGM(type) {
     
     if (currentBgm && bgmVolume > 0) {
         currentBgm.volume = bgmVolume;
-        currentBgm.play().catch(e => console.log("BGM 재생 대기 (클릭필요)"));
+        currentBgm.play().catch(e => console.log(e));
     }
 }
 
@@ -433,11 +437,10 @@ function updateSettings() {
     let pLevel = document.getElementById('setting-particle').value;
     if (pLevel === 'high') settingParticleRate = 1; else if (pLevel === 'normal') settingParticleRate = 2; else if (pLevel === 'low') settingParticleRate = 4;
     
-    bgmVolume = document.getElementById('vol-bgm').value / 100;
-    zzfxV = document.getElementById('vol-sfx').value / 100;
+    bgmVolume = document.getElementById('vol-bgm').value / 200;
+    targetSfxVolume = document.getElementById('vol-sfx').value / 200;
     
     if (currentBgm) currentBgm.volume = bgmVolume;
-    if (masterGain) masterGain.gain.value = zzfxV; 
 }
 
 function updateLobbySettings() {
@@ -731,6 +734,8 @@ function triggerStartGame() {
             p.damage = 0; p.score = 0; p.blockGauge = 100; p.isBlockBroken = false;
             p.hitStunTimer = 0; p.attackTimer = 0; p.currentAttack = null;
             p.isUltimate = false; p.ultimateTimer = 0; p.isGlowing = false; p.lastAttackerId = null; p.respawnTimer = 0;
+            p.width = p.isSpectator ? 0 : 64;
+            p.height = p.isSpectator ? 0 : 64;
         }
         gameState.items = [];
     }
@@ -760,6 +765,8 @@ function handleRestart() {
             p.hitStunTimer = 0; p.attackTimer = 0; p.currentAttack = null;
             p.isGlowing = false; p.isUltimate = false; p.ultimateTimer = 0; p.lastAttackerId = null; p.respawnTimer = 0;
             p.isGrounded = false; p.jumpCount = 0; p.airLightUsed = false; p.walkStep = 0;
+            p.width = 64;
+            p.height = 64;
         }
         gameState.items = [];
         gameState.recentEvents = [];
@@ -791,7 +798,6 @@ function hostLoop() {
             let conn = connections.find(c => c.peer === id);
             if (conn) conn.close();
             connections = connections.filter(c => c.peer !== id);
-            console.log(`[종료] 유저 ${id}의 응답이 길어져 연결을 종료합니다.`);
         }
     }
 
@@ -1488,6 +1494,14 @@ function showRankingScreen() {
 function gameLoop() { 
     if (isHost) hostLoop(); else sendInputToHost(); 
     
+    let elapsed = Date.now() - sfxFadeInStart;
+    if (elapsed < 3000) {
+        zzfxV = targetSfxVolume * (elapsed / 3000);
+    } else {
+        zzfxV = targetSfxVolume;
+    }
+    if (masterGain) masterGain.gain.value = zzfxV;
+
     processNetworkEvents();
     updateLocalEffects();
     
@@ -1501,14 +1515,31 @@ function resetUI() {
 }
 
 function initPeer() { 
-    peer = new Peer(); 
+    peer = new Peer({
+        config: {
+            'iceServers': [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun.stunprotocol.org:3478' },
+                {
+                    urls: 'turn:openrelay.metered.ca:80',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:443',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
+            ]
+        }
+    }); 
+    
     peer.on('open', id => { myId = id; }); 
     
     peer.on('error', (err) => {
-        console.error("PeerJS 통신 에러:", err);
-        let errorMsg = "연결에 실패했습니다. 방 코드를 확인하거나 네트워크 상태를 점검해주세요.";
-        if (err.type === 'peer-unavailable') errorMsg = "존재하지 않는 방 코드입니다.";
-        alert(errorMsg);
+        console.error(err);
+        alert("방화벽 설정 또는 접속 코드를 확인해주세요.");
         resetUI();
     });
 }
@@ -1527,7 +1558,7 @@ function requestFullscreenSafely() {
     }
     
     if (promise !== undefined && promise !== null && typeof promise.catch === 'function') {
-        promise.catch(e => console.log("전체화면 권한 거부됨(무시 가능):", e));
+        promise.catch(e => console.log(e));
     }
 }
 
@@ -1648,7 +1679,14 @@ function joinGame() {
         });
         
         hostConnection.on('data', data => { 
-            if (data.type === 'state') { gameState = data.state; } 
+            if (data.type === 'state') { 
+                if (!firstStateReceived) {
+                    firstStateReceived = true;
+                    sfxFadeInStart = Date.now();
+                    localLastEventId = data.state.eventCounter;
+                }
+                gameState = data.state; 
+            } 
             else if (data.type === 'error') { alert(data.message); location.reload(); } 
             else if (data.type === 'alert') { alert(data.message); mySelectedChar = '관전'; document.getElementById('setting-char').value = '관전'; }
         });
@@ -1659,7 +1697,7 @@ function joinGame() {
         });
         
         hostConnection.on('error', (err) => {
-            console.error("방장 연결 에러:", err);
+            console.error(err);
             alert("방장과 연결할 수 없습니다. 다시 시도해주세요.");
             location.reload();
         });
