@@ -285,7 +285,7 @@ function playSFX(type) {
         case 'heavy_hit': zzfx(1.3, 0.1, 80, 0.02, 0.1, 0.25, 4, 1.5, -15, 0, 0, 0, 0, 0.7, 0, 0, 0, 1, 0, 0); break;
         case 'death': zzfx(2.0, 0.2, 200, 0.1, 0.2, 0.8, 4, 1, -5, 0, 0, 0, 0, 0.8, 0, 0, 0, 1, 0, 0); break;
         case 'shatter': zzfx(1.5, 0.5, 500, 0.01, 0.1, 0.4, 4, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0); break;
-        case 'item_get': // 궁극기 아이템 획득 (띠롱)
+        case 'item_get': 
             setTimeout(()=>zzfx(1.2, 0, 880, 0.05, 0.1, 0.1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0), 0);
             setTimeout(()=>zzfx(1.2, 0, 1318, 0.05, 0.2, 0.2, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0), 100);
             break;
@@ -322,7 +322,6 @@ function playCustomBGM(type) {
  */
 const MAP_W = 1600; const MAP_H = 1200;
 
-// 4가지 맵 정의 데이터
 const MAP_DEFS = {
     '요정왕국': {
         bg: 'bg1.png', color: '#f1c40f',
@@ -353,7 +352,6 @@ availableCharacters.forEach(name => {
     }
 });
 
-// 배경 이미지 캐싱
 const bgImages = {};
 mapNames.forEach(name => {
     let img = new Image(); img.src = 'bg/' + MAP_DEFS[name].bg; bgImages[name] = img;
@@ -365,7 +363,6 @@ let settingEffects = true;
 let settingParticleRate = 1;
 let isGameLoopRunning = false; 
 
-// 카메라 관련 글로벌 변수
 let currentCamX = 800 - 500, currentCamY = 600 - 350, currentScale = 1.0;
 let spectatorZoom = 1.0; 
 
@@ -397,7 +394,6 @@ function updateSettings() {
     if (masterGain) masterGain.gain.value = zzfxV; 
 }
 
-// 대기실에서 설정 변경 시 실시간 반영 및 동기화
 function updateLobbySettings() {
     if (!isHost || gameState.status !== 'lobby') return;
     
@@ -412,9 +408,8 @@ function updateLobbySettings() {
     gameState.timeLimit = minutes;
     gameState.maxPlayers = maxPlayers;
     gameState.mapSelection = mapSelection;
-    gameState.timeLeft = minutes * 60 * 60; // 변경된 시간을 타이머에 즉시 반영
+    gameState.timeLeft = minutes * 60 * 60; 
     
-    // 랜덤이 아닐 경우엔 대기실 백그라운드도 즉시 반영되도록 함
     if (mapSelection !== 'random') {
         gameState.currentMap = mapSelection;
     }
@@ -477,7 +472,6 @@ window.onload = () => {
     charSelect.value = mySelectedChar;
 };
 
-// 캐릭터 정보 업데이트 헬퍼
 function updatePlayerCharacter(player, charName) {
     player.imageName = charName;
     player.displayName = parseName(charName);
@@ -486,7 +480,6 @@ function updatePlayerCharacter(player, charName) {
     player.height = player.isSpectator ? 0 : 64;
 }
 
-// 설정창에서 캐릭터 실시간 변경
 function changeCharacterFromSettings() {
     const selectElem = document.getElementById('setting-char');
     const newChar = selectElem.value;
@@ -518,28 +511,6 @@ function changeCharacterFromSettings() {
         hostConnection.send({ type: 'change_char', charName: newChar });
     } else {
         mySelectedChar = newChar;
-    }
-}
-
-function startGameUI() { 
-    document.getElementById('char-select-screen').style.display = 'none'; 
-    document.getElementById('game-container').style.display = 'block'; 
-    
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    if (isMobile) {
-        let elem = document.documentElement;
-        if (elem.requestFullscreen) { elem.requestFullscreen().catch(e => console.log(e)); }
-        else if (elem.webkitRequestFullscreen) { elem.webkitRequestFullscreen().catch(e => console.log(e)); }
-    }
-
-    resizeCanvas();
-    
-    if (mySelectedChar === '관전') {
-        document.getElementById('btn-z').innerText = '줌인(Z)';
-        document.getElementById('btn-x').innerText = '줌아웃(X)';
-        document.getElementById('btn-up').innerText = '상(Up)';
-        document.getElementById('btn-down').innerText = '하(Down)';
-        document.getElementById('btn-c').style.visibility = 'hidden';
     }
 }
 
@@ -592,7 +563,6 @@ bindBtn('btn-up', 'ArrowUp'); bindBtn('btn-down', 'ArrowDown'); bindBtn('btn-z',
 const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d');
 const GRAVITY = 0.8; const MAX_FALL_SPEED = 15; 
 
-// 게임 상태 객체
 let gameState = { 
     status: 'lobby', timeLeft: 0, countdownTimer: 0, gameOverTimer: 0, 
     players: {}, items: [], eventCounter: 0, recentEvents: [], 
@@ -602,7 +572,7 @@ let myId = null; let isHost = false; let peer = null; let connections = []; let 
 let screenShake = 0; let clientLastStatus = null; let clientClimaxTriggered = false;
 
 let guestInputs = {}; 
-let clientHeartbeats = {}; // 접속 유저들의 마지막 통신 시간을 기록
+let clientHeartbeats = {}; 
 function getGuestKeys(id) { return guestInputs[id] || {}; }
 
 let localParticles = [];
@@ -666,7 +636,7 @@ function processMeteorPhysics(attacker, powerRatio) {
                 target.blockGauge -= baseDmg * 3; target.vx += Math.sign(dx) * 6 * (target.isUltimate ? 0.25 : 1);
                 if(target.blockGauge <= 0 && !target.isBlockBroken) { 
                     target.isBlockBroken = true; if(!target.isUltimate) target.hitStunTimer = 40; 
-                    spawnGlassShatter(target.x + target.width/2, target.y + target.height/2, target.height); // 💡 세로 기준
+                    spawnGlassShatter(target.x + target.width/2, target.y + target.height/2, target.height); 
                 }
                 spawnHitParticles(target.x + target.width/2, target.y + target.height/2, baseDmg * 0.5, 'heavy');
             } else {
@@ -692,10 +662,9 @@ function triggerStartGame() {
     if (isHost && gameState.status === 'lobby') {
         document.getElementById('btn-start').style.display = 'none';
         document.getElementById('time-limit').disabled = true;
-        document.getElementById('setting-max-players').disabled = true; // 인원 설정 잠금
-        document.getElementById('setting-map').disabled = true; // 맵 설정 잠금
+        document.getElementById('setting-max-players').disabled = true; 
+        document.getElementById('setting-map').disabled = true; 
         
-        // 랜덤 맵일 경우 게임 시작 시점에 하나를 픽스
         if (gameState.mapSelection === 'random') {
             gameState.currentMap = mapNames[Math.floor(Math.random() * mapNames.length)];
         } else {
@@ -745,7 +714,6 @@ function handleRestart() {
             p.vx = 0; p.vy = 0;
             p.damage = 0; p.score = 0; p.blockGauge = 100; p.isBlockBroken = false;
             p.hitStunTimer = 0; p.attackTimer = 0; p.currentAttack = null;
-            // 궁극기 상태 완벽 초기화
             p.isGlowing = false; p.isUltimate = false; p.ultimateTimer = 0; p.lastAttackerId = null; p.respawnTimer = 0;
             p.isGrounded = false; p.jumpCount = 0; p.airLightUsed = false; p.walkStep = 0;
         }
@@ -762,7 +730,6 @@ function handleRestart() {
 function hostLoop() {
     if (!isHost || gameState.status === 'finished') return;
 
-    // --- 비정상 종료(타임아웃) 체크 ---
     let now = Date.now();
     for (let id in clientHeartbeats) {
         if (now - clientHeartbeats[id] > 15000) {
@@ -775,7 +742,6 @@ function hostLoop() {
             console.log(`[종료] 유저 ${id}의 응답이 길어져 연결을 종료합니다.`);
         }
     }
-    // ---------------------------------
 
     if (gameState.status === 'gameover_anim') {
         gameState.gameOverTimer--;
@@ -827,7 +793,7 @@ function hostLoop() {
         }
 
         if (p.ultimateTimer > 0) p.ultimateTimer--;
-        if (p.ultimateTimer === 1) { p.isUltimate = false; } // 너비는 클라이언트 렌더링에서 자동으로 리셋됨
+        if (p.ultimateTimer === 1) { p.isUltimate = false; } 
 
         if (p.hitStunTimer > 0) {
             p.hitStunTimer--; p.isBlocking = false; p.attackTimer = 0; 
@@ -841,7 +807,7 @@ function hostLoop() {
                     p.isBlocking = true; p.blockGauge -= 1.5; p.vx = 0;
                     if(p.blockGauge <= 0 && !p.isBlockBroken) { 
                         p.isBlockBroken = true; if(!p.isUltimate) p.hitStunTimer = 40; 
-                        spawnGlassShatter(p.x + p.width/2, p.y + p.height/2, p.height); // 💡 세로 기준
+                        spawnGlassShatter(p.x + p.width/2, p.y + p.height/2, p.height); 
                     }
                 } else { p.isBlocking = false; p.blockGauge = Math.min(100, p.blockGauge + 0.2); }
             }
@@ -883,7 +849,7 @@ function hostLoop() {
                     else { p.attackTimer = 15; p.currentAttack = 'air_heavy_startup'; p.vy = 0; p.vx = 0; p.meteorStartY = p.y; if(id===myId) playSFX('charge'); }
                 } else if (pKeys.c && p.isGlowing) { 
                     p.isGlowing = false; p.isUltimate = true; p.ultimateTimer = 500;
-                    p.y -= p.height/2; spawnDeathEffects(p.x + p.width, p.y + p.height); // 임시 보정치 적용
+                    p.y -= p.height/2; spawnDeathEffects(p.x + p.width, p.y + p.height); 
                     if(id===myId) playSFX('ultimate');
                 }
             }
@@ -895,7 +861,6 @@ function hostLoop() {
         
         p.x += p.vx; p.y += p.vy; p.isGrounded = false;
         
-        // 동적 플랫폼 물리 충돌
         for (let plat of currentPlatforms) {
             if (p.x + p.width > plat.x && p.x < plat.x + plat.w) {
                 if (p.vy >= 0 && oldY + p.height <= plat.y + 15 && p.y + p.height >= plat.y) {
@@ -923,7 +888,6 @@ function hostLoop() {
     for (let i = gameState.items.length - 1; i >= 0; i--) {
         let item = gameState.items[i]; let oldItemY = item.y; item.y += item.vy;
         
-        // 동적 플랫폼 기반 아이템 물리 
         for (let plat of currentPlatforms) {
             if (item.x > plat.x && item.x < plat.x + plat.w && oldItemY + 10 <= plat.y && item.y + 10 >= plat.y) { 
                 item.y = plat.y - 10; item.vy = 0; 
@@ -932,7 +896,6 @@ function hostLoop() {
         
         for (let id in gameState.players) {
             let p = gameState.players[id]; if (p.respawnTimer > 0 || p.isSpectator) continue; 
-            // 아이템 획득 이벤트
             if (Math.abs((p.x + p.width/2) - item.x) < p.width && Math.abs((p.y + p.height/2) - item.y) < p.height) { 
                 p.isGlowing = true; 
                 gameState.recentEvents.push({ id: ++gameState.eventCounter, type: 'item_get', x: p.x + p.width/2, y: p.y + p.height/2 });
@@ -1032,7 +995,6 @@ function executeLocalEvent(ev) {
         localPillars.push({ x: ev.x, y: ev.y, width: 150 * ev.powerRatio, height: 600 * ev.powerRatio, life: 20, maxLife: 20 });
     } else if (ev.type === 'item_get') {
         playSFX('item_get');
-        // 아이템 획득 시 팡 터지는 노란색 파티클
         for(let i=0; i<20; i++) {
             let speed = 5 + Math.random() * 10; let angle = Math.random() * Math.PI * 2;
             localParticles.push({ x: ev.x, y: ev.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 20, maxLife: 30, color: '#ffff00', size: 4, type: 'shard' });
@@ -1075,7 +1037,6 @@ function render() {
         clientLastStatus = gameState.status;
     }
     
-    // UI 업데이트 (방장이 수정한 값을 게스트에게 실시간 매칭)
     if (!isHost) {
         let timeInput = document.getElementById('time-limit');
         let maxPlayersInput = document.getElementById('setting-max-players');
@@ -1142,7 +1103,6 @@ function render() {
     ctx.scale(currentScale, currentScale);
     ctx.translate(-currentCamX, -currentCamY); 
     
-    // --- 맵 렌더링 ---
     let mapDef = MAP_DEFS[gameState.currentMap] || MAP_DEFS['요정왕국'];
     let bgImg = bgImages[gameState.currentMap];
     if (bgImg && bgImg.complete) ctx.drawImage(bgImg, 0, 0, MAP_W, MAP_H); 
@@ -1152,7 +1112,6 @@ function render() {
         ctx.fillStyle = '#2f3542'; ctx.fillRect(plat.x, plat.y, plat.w, plat.h); 
         ctx.fillStyle = mapDef.color; ctx.fillRect(plat.x, plat.y, plat.w, 15); 
     });
-    // -----------------
 
     if (settingEffects) {
         localPillars.forEach(pil => { let ratio = pil.life / pil.maxLife; let grd = ctx.createLinearGradient(0, pil.y - pil.height, 0, pil.y); grd.addColorStop(0, `rgba(255, 255, 255, 0)`); grd.addColorStop(1, `rgba(255, 150, 50, ${ratio * 0.8})`); ctx.fillStyle = grd; ctx.fillRect(pil.x - pil.width/2 * ratio, pil.y - pil.height, pil.width * ratio, pil.height); });
@@ -1324,10 +1283,73 @@ function gameLoop() {
     if (isGameLoopRunning) requestAnimationFrame(gameLoop); 
 }
 
-function initPeer() { peer = new Peer(); peer.on('open', id => { myId = id; }); }
+/**
+ * [해결 4] 에러 핸들러: 연결 실패 시 버튼을 다시 활성화하는 함수
+ */
+function resetUI() {
+    document.getElementById('btn-host').disabled = false;
+    document.getElementById('btn-join').disabled = false;
+}
+
+/**
+ * P2P 설정은 원본 코드 유지, 에러 핸들링만 추가
+ */
+function initPeer() { 
+    peer = new Peer(); 
+    peer.on('open', id => { myId = id; }); 
+    
+    peer.on('error', (err) => {
+        console.error("PeerJS 통신 에러:", err);
+        let errorMsg = "연결에 실패했습니다. 방 코드를 확인하거나 네트워크 상태를 점검해주세요.";
+        if (err.type === 'peer-unavailable') errorMsg = "존재하지 않는 방 코드입니다.";
+        alert(errorMsg);
+        resetUI();
+    });
+}
+
+/**
+ * [해결 3] Safari Promise 에러 방지용 함수
+ */
+function requestFullscreenSafely() {
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (!isMobile) return;
+
+    let elem = document.documentElement;
+    let promise = null;
+    
+    if (elem.requestFullscreen) { 
+        promise = elem.requestFullscreen(); 
+    } else if (elem.webkitRequestFullscreen) { 
+        promise = elem.webkitRequestFullscreen(); 
+    }
+    
+    if (promise !== undefined && promise !== null && typeof promise.catch === 'function') {
+        promise.catch(e => console.log("전체화면 권한 거부됨(무시 가능):", e));
+    }
+}
+
+/**
+ * UI 전환 함수
+ */
+function startGameUI() { 
+    document.getElementById('char-select-screen').style.display = 'none'; 
+    document.getElementById('game-container').style.display = 'block'; 
+    
+    resizeCanvas();
+    
+    if (mySelectedChar === '관전') {
+        document.getElementById('btn-z').innerText = '줌인(Z)';
+        document.getElementById('btn-x').innerText = '줌아웃(X)';
+        document.getElementById('btn-up').innerText = '상(Up)';
+        document.getElementById('btn-down').innerText = '하(Down)';
+        document.getElementById('btn-c').style.visibility = 'hidden';
+    }
+}
 
 function startHost() {
     unlockAudio(); 
+    requestFullscreenSafely(); 
+
     let minutes = parseInt(document.getElementById('time-limit').value); if (isNaN(minutes) || minutes < 1) minutes = 3;
     let maxPlayers = parseInt(document.getElementById('setting-max-players').value); if (isNaN(maxPlayers) || maxPlayers < 2) maxPlayers = 4;
     let mapSelection = document.getElementById('setting-map').value;
@@ -1354,14 +1376,13 @@ function startHost() {
 
             conn.on('data', data => { 
                 clientHeartbeats[conn.peer] = Date.now(); 
-
                 if (data.type === 'join') { 
                     let currentMax = gameState.maxPlayers || parseInt(document.getElementById('setting-max-players').value);
                     let currentPlayers = Object.values(gameState.players).filter(p => p && !p.isSpectator).length;
 
                     if (data.charName !== '관전' && currentPlayers >= currentMax) {
                         conn.send({ type: 'error', message: '방 인원이 가득 찼습니다.' });
-                        conn.close();
+                        setTimeout(() => conn.close(), 500);
                         return;
                     }
                     gameState.players[conn.peer] = new Player(conn.peer, data.charName); 
@@ -1376,13 +1397,9 @@ function startHost() {
                             return;
                         }
                     }
-                    if (gameState.players[conn.peer]) {
-                        updatePlayerCharacter(gameState.players[conn.peer], data.charName);
-                    }
+                    if (gameState.players[conn.peer]) updatePlayerCharacter(gameState.players[conn.peer], data.charName);
                 }
-                else if (data.type === 'input') { 
-                    guestInputs[conn.peer] = data.keys; 
-                } 
+                else if (data.type === 'input') { guestInputs[conn.peer] = data.keys; } 
             }); 
             
             conn.on('close', () => { 
@@ -1393,15 +1410,14 @@ function startHost() {
             }); 
         });
         
-        if (!isGameLoopRunning) {
-            isGameLoopRunning = true;
-            requestAnimationFrame(gameLoop);
-        }
+        if (!isGameLoopRunning) { isGameLoopRunning = true; requestAnimationFrame(gameLoop); }
     });
 }
 
 function joinGame() {
     unlockAudio(); 
+    requestFullscreenSafely(); 
+
     let hostId = document.getElementById('join-id').value.trim(); if (!hostId) return alert("방 코드를 입력하세요.");
     
     document.getElementById('btn-host').disabled = true;
@@ -1409,28 +1425,35 @@ function joinGame() {
     
     initPeer();
     peer.on('open', id => {
-        isHost = false; hostConnection = peer.connect(hostId);
-        hostConnection.on('open', () => { startGameUI(); hostConnection.send({ type: 'join', charName: mySelectedChar }); });
+        isHost = false; 
+        hostConnection = peer.connect(hostId);
         
-        hostConnection.on('data', data => { 
-            if (data.type === 'state') {
-                gameState = data.state; 
-            } else if (data.type === 'error') {
-                alert(data.message);
-                location.reload(); 
-            } else if (data.type === 'alert') {
-                alert(data.message);
-                mySelectedChar = '관전';
-                document.getElementById('setting-char').value = '관전';
-            }
+        hostConnection.on('open', () => { 
+            startGameUI(); 
+            hostConnection.send({ type: 'join', charName: mySelectedChar }); 
         });
         
-        if (!isGameLoopRunning) {
-            isGameLoopRunning = true;
-            requestAnimationFrame(gameLoop);
-        }
+        hostConnection.on('data', data => { 
+            if (data.type === 'state') { gameState = data.state; } 
+            else if (data.type === 'error') { alert(data.message); location.reload(); } 
+            else if (data.type === 'alert') { alert(data.message); mySelectedChar = '관전'; document.getElementById('setting-char').value = '관전'; }
+        });
+
+        hostConnection.on('close', () => {
+            alert("방장과의 연결이 끊어졌습니다.");
+            location.reload(); 
+        });
+        
+        hostConnection.on('error', (err) => {
+            console.error("방장 연결 에러:", err);
+            alert("방장과 연결할 수 없습니다. 다시 시도해주세요.");
+            resetUI();
+        });
+        
+        if (!isGameLoopRunning) { isGameLoopRunning = true; requestAnimationFrame(gameLoop); }
     });
 }
+
 function broadcastState() { connections.forEach(conn => conn.send({ type: 'state', state: gameState })); }
 
 function sendInputToHost() { if (hostConnection && hostConnection.open && gameState.status !== 'finished') hostConnection.send({ type: 'input', keys: keys }); }
