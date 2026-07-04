@@ -142,7 +142,10 @@
         <button id="btn-join" onclick="joinGame()">참가하기</button>
     </div>
     
-    <button id="btn-start" onclick="triggerStartGame()" style="margin-left: 10px;">게임 시작!</button>
+    <label id="auto-start-label" style="display: none; margin-left: 10px; font-size: 14px; cursor: pointer; align-items: center;">
+        <input type="checkbox" id="setting-auto-start" onchange="toggleAutoStart()"> 자동시작
+    </label>
+    <button id="btn-start" onclick="triggerStartGame()" style="margin-left: 5px;">게임 시작!</button>
 </div>
 
 <div id="char-select-screen" class="noselect">
@@ -182,6 +185,19 @@
 </div>
 
 <script>
+let autoStartEnabled = false;
+let autoStartTimer = 0;
+let autoRestartTimer = 0;
+
+function toggleAutoStart() {
+    autoStartEnabled = document.getElementById('setting-auto-start').checked;
+    if (autoStartEnabled && gameState.status === 'lobby') {
+        autoStartTimer = 30 * 60; // 60fps 기준 30초
+    } else {
+        document.getElementById('btn-start').innerText = "게임 시작!";
+    }
+}
+
 let zzfxX, zzfxR = 44100;
 let masterGain; 
 let zzfxV = 0.3; 
@@ -640,7 +656,6 @@ function processMeteorPhysics(attacker, powerRatio) {
     let shockX = attacker.x + attacker.width/2; let shockY = attacker.y + attacker.height;
     let range = 400 * powerRatio; let baseDmg = 25 * powerRatio; 
     
-
     let baseKnockback = 10 * powerRatio;
     
     gameState.recentEvents.push({ id: ++gameState.eventCounter, type: 'meteor', x: shockX, y: shockY, powerRatio });
@@ -687,6 +702,7 @@ function processMeteorPhysics(attacker, powerRatio) {
 function triggerStartGame() {
     unlockAudio();
     if (isHost && gameState.status === 'lobby') {
+        document.getElementById('btn-start').innerText = '게임 시작!';
         document.getElementById('btn-start').style.display = 'none';
         document.getElementById('time-limit').disabled = true;
         document.getElementById('setting-max-players').disabled = true; 
@@ -748,6 +764,11 @@ function handleRestart() {
         gameState.recentEvents = [];
         gameState.eventCounter = 0;
         
+        document.getElementById('btn-restart').innerText = '대기실로 돌아가기';
+        if (autoStartEnabled) {
+            autoStartTimer = 30 * 60; // 자동시작 타이머 재설정
+        }
+        
         broadcastState();
     } else {
         alert("방장이 대기실로 복귀시킬 때까지 잠시만 기다려주세요.");
@@ -755,7 +776,21 @@ function handleRestart() {
 }
 
 function hostLoop() {
-    if (!isHost || gameState.status === 'finished') return;
+    if (!isHost) return;
+
+    if (gameState.status === 'finished') {
+        if (autoStartEnabled) {
+            if (autoRestartTimer > 0) {
+                autoRestartTimer--;
+                document.getElementById('btn-restart').innerText = `대기실 복귀 (${Math.ceil(autoRestartTimer / 60)})`;
+                if (autoRestartTimer <= 0) {
+                    document.getElementById('btn-restart').innerText = "대기실로 돌아가기";
+                    handleRestart();
+                }
+            }
+        }
+        return;
+    }
 
     let now = Date.now();
     for (let id in clientHeartbeats) {
@@ -772,8 +807,21 @@ function hostLoop() {
 
     if (gameState.status === 'gameover_anim') {
         gameState.gameOverTimer--;
-        if (gameState.gameOverTimer <= 0) { gameState.status = 'finished'; }
+        if (gameState.gameOverTimer <= 0) { 
+            gameState.status = 'finished'; 
+            autoRestartTimer = 10 * 60; 
+        }
         broadcastState(); return;
+    }
+
+    if (gameState.status === 'lobby' && autoStartEnabled) {
+        if (autoStartTimer > 0) {
+            autoStartTimer--;
+            document.getElementById('btn-start').innerText = `시작 (${Math.ceil(autoStartTimer / 60)})`;
+            if (autoStartTimer <= 0) {
+                triggerStartGame();
+            }
+        }
     }
 
     if (gameState.status === 'countdown') {
@@ -1014,7 +1062,8 @@ function hostLoop() {
 function processAttack(attacker, type) {
     let range, baseDmg, baseKnockback;
     
-    if (type === 'heavy') { range = attacker.height * 2.0; baseDmg = 24; baseKnockback = 10}
+    // 공격별 넉백 하향 조정 반영
+    if (type === 'heavy') { range = attacker.height * 2.0; baseDmg = 24; baseKnockback = 10} 
     else if (type === 'light') { range = attacker.height * 1.8; baseDmg = 5; baseKnockback = 3; } 
     else if (type === 'air_light') { range = attacker.height * 1.8; baseDmg = 8; baseKnockback = 4; } 
     
@@ -1483,7 +1532,9 @@ function startHost() {
     initPeer();
     peer.on('open', id => {
         document.getElementById('host-id').innerText = id; isHost = true; startGameUI(); 
-        document.getElementById('btn-copy-link').style.display = 'inline-block'; document.getElementById('btn-start').style.display = 'inline-block';
+        document.getElementById('btn-copy-link').style.display = 'inline-block'; 
+        document.getElementById('btn-start').style.display = 'inline-block';
+        document.getElementById('auto-start-label').style.display = 'flex'; // 자동시작 체크박스 표시
         
         gameState.status = 'lobby'; 
         gameState.timeLimit = minutes;
