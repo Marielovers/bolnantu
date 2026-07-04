@@ -39,8 +39,9 @@
         .char-btn { width: 60px; height: 60px; border: 3px solid transparent; border-radius: 10px; cursor: pointer; background-size: contain; background-position: center; background-repeat: no-repeat; background-color: #444; transition: 0.2s; flex-shrink: 0; }
         .char-btn.selected { border-color: #00ff00; background-color: #555; transform: scale(1.1); box-shadow: 0 0 15px #00ff00; }
         
-        #game-container { position: relative; width: 100%; max-width: 1000px; margin: 0 auto; display: none; }
-        canvas { width: 100%; height: auto; aspect-ratio: 10 / 7; background: #000; box-shadow: 0 0 20px rgba(0,0,0,0.8); display: block; }
+        /* 💡게임 캔버스 영역 모바일 완벽 자동 스케일링 설정 */
+        #game-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: none; background: #000; z-index: 100; overflow: hidden; }
+        canvas { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: block; box-shadow: 0 0 20px rgba(0,0,0,0.8); }
         
         #mobile-controls { position: fixed; bottom: 15px; left: 10px; right: 10px; display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; z-index: 1000; }
         #joystick-zone { width: 120px; height: 120px; position: relative; pointer-events: auto; }
@@ -293,7 +294,7 @@ function playCustomBGM(type) {
 }
 
 /**
- * 1. 기본 설정 및 로딩
+ * 1. 기본 설정, 로딩, 캔버스 스케일링
  */
 const baseChars = typeof characterList !== 'undefined' ? characterList : ['기본캐릭터'];
 const availableCharacters = ['관전', ...baseChars]; 
@@ -313,7 +314,7 @@ let isGameLoopRunning = false;
 
 // 카메라 관련 글로벌 변수
 let currentCamX = 800 - 500, currentCamY = 600 - 350, currentScale = 1.0;
-let spectatorZoom = 1.0; // 관전 모드 줌 변수
+let spectatorZoom = 1.0; 
 
 function toggleUI() {
     const content = document.getElementById('ui-content');
@@ -338,6 +339,29 @@ function updateSettings() {
     if (currentBgm) currentBgm.volume = bgmVolume;
     if (masterGain) masterGain.gain.value = zzfxV; 
 }
+
+// 💡 캔버스를 창 크기에 맞춰 자동 리사이징하는 함수
+function resizeCanvas() {
+    const container = document.getElementById('game-container');
+    const canvas = document.getElementById('gameCanvas');
+    if (container.style.display === 'none') return;
+    
+    let w = window.innerWidth;
+    let h = window.innerHeight;
+    let targetRatio = 10 / 7;
+    let currentRatio = w / h;
+    
+    if (currentRatio > targetRatio) {
+        // 화면이 상대적으로 가로로 더 길 때: 세로 길이에 맞추기
+        canvas.style.height = h + 'px';
+        canvas.style.width = (h * targetRatio) + 'px';
+    } else {
+        // 화면이 상대적으로 세로로 더 길 때: 가로 길이에 맞추기
+        canvas.style.width = w + 'px';
+        canvas.style.height = (w / targetRatio) + 'px';
+    }
+}
+window.addEventListener('resize', resizeCanvas);
 
 window.onload = () => {
     const urlParams = new URLSearchParams(window.location.search); const roomCode = urlParams.get('room');
@@ -369,9 +393,9 @@ function startGameUI() {
     document.getElementById('char-select-screen').style.display = 'none'; 
     document.getElementById('game-container').style.display = 'block'; 
     
-    // 설정창 자동 숨김 기능 해제 (이전의 toggleUI 호출 부분 삭제)
+    // 💡 화면 리사이징 강제 적용 및 설정 자동 숨김 해제
+    resizeCanvas();
     
-    // 관전 모드일 경우 모바일 UI 텍스트 변경
     if (mySelectedChar === '관전') {
         document.getElementById('btn-z').innerText = '줌인(Z)';
         document.getElementById('btn-x').innerText = '줌아웃(X)';
@@ -418,14 +442,23 @@ function bindBtn(id, key) {
 bindBtn('btn-up', 'ArrowUp'); bindBtn('btn-down', 'ArrowDown'); bindBtn('btn-z', 'z'); bindBtn('btn-x', 'x'); bindBtn('btn-c', 'c');
 
 /**
- * 3. 게임 상태 정의
+ * 3. 💡 게임 상태 정의 (렉 최적화 적용: 이펙트 통신 분리)
  */
 const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d');
 const GRAVITY = 0.8; const MAX_FALL_SPEED = 15; const MAP_W = 1600; const MAP_H = 1200;
 const platforms = [{ x: 300, y: 1000, w: 1000, h: 200 }, { x: 100, y: 700, w: 300, h: 20 }, { x: 1200, y: 700, w: 300, h: 20 }, { x: 650, y: 440, w: 300, h: 20 }];
-let gameState = { status: 'lobby', timeLeft: 0, countdownTimer: 0, gameOverTimer: 0, players: {}, items: [], particles: [], impacts: [], shockwaves: [], pillars: [], totalImpacts: 0 };
+
+// gameState에서 particles 등 무거운 데이터를 완전히 제거하고 가벼운 이벤트 구조로 통신합니다.
+let gameState = { status: 'lobby', timeLeft: 0, countdownTimer: 0, gameOverTimer: 0, players: {}, items: [], eventCounter: 0, recentEvents: [] };
 let myId = null; let isHost = false; let peer = null; let connections = []; let hostConnection = null; let rankingShown = false;
-let screenShake = 0; let localImpactCount = 0; let clientLastStatus = null; let clientClimaxTriggered = false;
+let screenShake = 0; let clientLastStatus = null; let clientClimaxTriggered = false;
+
+// 💡 렉 발생의 원인이었던 이펙트 데이터는 이제 네트워크를 타지 않고 각자의 컴퓨터에만 저장됩니다.
+let localParticles = [];
+let localImpacts = [];
+let localShockwaves = [];
+let localPillars = [];
+let localLastEventId = 0;
 
 class Player {
     constructor(id, imageName) {
@@ -447,46 +480,27 @@ class Player {
 }
 
 /**
- * 4. 이펙트 생성 함수
+ * 4. 이펙트 생성 함수 (이벤트 버스 방식)
+ * 이제 파티클을 100개 만들어도 네트워크로는 단 1줄의 짧은 이벤트 문장만 전송됩니다.
  */
 function spawnHitParticles(x, y, power, attackType) {
-    let coreColor = 'cyan'; let sparkColor = '#00ffff';
-    if (attackType === 'heavy') { coreColor = 'orange'; sparkColor = '#ffaa00'; }
-    else if (attackType === 'air_light') { coreColor = '#32ff96'; sparkColor = '#aaffaa'; }
-
-    gameState.impacts.push({ x: x, y: y, life: 12, maxLife: 12, size: power * 2.5, type: attackType, color: coreColor });
-    gameState.totalImpacts++; 
-    
-    for(let i=0; i<15 + power; i++) {
-        let speed = 15 + Math.random() * 20 * (power/15); let angle = Math.random() * Math.PI * 2;
-        let pType = Math.random() > 0.4 ? 'line' : 'shard';
-        let color = Math.random() > 0.5 ? sparkColor : '#ffffff';
-        gameState.particles.push({ x: x, y: y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 15 + Math.random() * 15, maxLife: 30, color: color, size: 3 + Math.random() * 4, type: pType });
-    }
+    gameState.recentEvents.push({ id: ++gameState.eventCounter, type: 'hit', x, y, power, attackType });
 }
 
 function spawnGlassShatter(x, y, radius) {
-    gameState.shockwaves.push({ x: x, y: y, radius: radius, life: 15, maxLife: 15, maxRadius: radius + 80, type: 'glass_break' });
-    for(let i=0; i<25; i++) {
-        let speed = 5 + Math.random() * 15; let angle = Math.random() * Math.PI * 2;
-        gameState.particles.push({ x: x, y: y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 20 + Math.random() * 20, maxLife: 40, color: `rgba(0, 255, 255, ${0.6 + Math.random()*0.4})`, size: 6 + Math.random() * 8, type: 'glass' });
-    }
+    gameState.recentEvents.push({ id: ++gameState.eventCounter, type: 'shatter', x, y, radius });
 }
 
 function spawnDeathEffects(x, y) {
-    for(let i=0; i<80; i++) {
-        let speed = 20 + Math.random() * 35; let angle = Math.random() * Math.PI * 2;
-        gameState.particles.push({ x: x, y: y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 40 + Math.random() * 30, maxLife: 70, color: `hsl(${Math.random() * 360}, 100%, 70%)`, size: 5 + Math.random() * 5, type: 'shard' });
-    }
-    gameState.shockwaves.push({ x: x, y: y, radius: 10, life: 25, maxLife: 25, maxRadius: 500, type: 'death' });
+    gameState.recentEvents.push({ id: ++gameState.eventCounter, type: 'death', x, y });
 }
 
-function spawnMeteorLanding(attacker, powerRatio) {
+function processMeteorPhysics(attacker, powerRatio) {
     let shockX = attacker.x + attacker.width/2; let shockY = attacker.y + attacker.height;
     let range = 400 * powerRatio; let baseDmg = 25 * powerRatio; let baseKnockback = 18 * powerRatio;
     
-    gameState.shockwaves.push({ x: shockX, y: shockY, radius: 20, life: 25, maxLife: 25, maxRadius: range, type: 'meteor' });
-    gameState.pillars.push({ x: shockX, y: shockY, width: 150 * powerRatio, height: 600 * powerRatio, life: 20, maxLife: 20 });
+    // 시각적 효과 및 사운드 발생용 이벤트 전송
+    gameState.recentEvents.push({ id: ++gameState.eventCounter, type: 'meteor', x: shockX, y: shockY, powerRatio });
     
     if (attacker.isUltimate) { baseDmg *= 2; baseKnockback *= 1.5; range *= 1.5; }
     
@@ -535,6 +549,11 @@ function triggerStartGame() {
         gameState.status = 'countdown';
         gameState.countdownTimer = 240; 
         
+        gameState.eventCounter = 0;
+        gameState.recentEvents = [];
+        localParticles = []; localImpacts = []; localShockwaves = []; localPillars = [];
+        localLastEventId = 0;
+        
         for (let id in gameState.players) {
             let p = gameState.players[id];
             p.x = MAP_W / 2; p.y = 50; 
@@ -544,7 +563,7 @@ function triggerStartGame() {
             p.hitStunTimer = 0; p.attackTimer = 0; p.currentAttack = null;
             p.isUltimate = false; p.ultimateTimer = 0; p.lastAttackerId = null; p.respawnTimer = 0;
         }
-        gameState.items = []; gameState.particles = []; gameState.impacts = []; gameState.shockwaves = []; gameState.pillars = [];
+        gameState.items = [];
     }
 }
 
@@ -679,7 +698,7 @@ function hostLoop() {
         if (!oldGrounded && p.isGrounded && p.currentAttack === 'air_heavy') {
             p.currentAttack = 'air_heavy_landing'; p.attackTimer = 60; 
             let fallDist = Math.max(0, p.y - p.meteorStartY); let powerRatio = Math.max(0.3, Math.min(1.0, fallDist / (MAP_H / 2)));
-            spawnMeteorLanding(p, powerRatio); if (id === myId) playSFX('heavy_slam'); 
+            processMeteorPhysics(p, powerRatio); 
         }
 
         if (p.x < -200 || p.x > MAP_W + 200 || p.y < -200 || p.y > MAP_H + 200) {
@@ -688,7 +707,6 @@ function hostLoop() {
                 gameState.players[p.lastAttackerId].score += 1;
             }
             p.respawnTimer = 180; p.x = -9999; p.y = -9999; p.vx = 0; p.vy = 0; 
-            // 삭제: 여기 있던 id===myId 일때만 death 소리 내던 조건 삭제
         }
     }
 
@@ -703,10 +721,9 @@ function hostLoop() {
         if (item && item.y > MAP_H + 100) gameState.items.splice(i, 1); 
     }
 
-    for (let i = gameState.particles.length - 1; i >= 0; i--) { let pt = gameState.particles[i]; pt.x += pt.vx; pt.y += pt.vy; pt.vy += 0.5; pt.vx *= 0.95; pt.vy *= 0.95; pt.life--; if(pt.life <= 0) gameState.particles.splice(i, 1); }
-    for (let i = gameState.impacts.length - 1; i >= 0; i--) { gameState.impacts[i].life--; if(gameState.impacts[i].life <= 0) gameState.impacts.splice(i, 1); }
-    for (let i = gameState.shockwaves.length - 1; i >= 0; i--) { let sw = gameState.shockwaves[i]; sw.radius += (sw.maxRadius - sw.radius) * 0.2; sw.life--; if(sw.life <= 0) gameState.shockwaves.splice(i, 1); }
-    for (let i = gameState.pillars.length - 1; i >= 0; i--) { gameState.pillars[i].life--; if(gameState.pillars[i].life <= 0) gameState.pillars.splice(i, 1); }
+    // 통신 배열 크기 방지 (메모리 최적화)
+    while (gameState.recentEvents.length > 50) gameState.recentEvents.shift();
+
     broadcastState();
 }
 
@@ -741,7 +758,67 @@ function processAttack(attacker, type) {
     }
 }
 
-let clientPlayerStates = {}; // 게임 전체 상태 변화를 감지하기 위한 변수 추가
+/**
+ * 6. 클라이언트 로컬 이펙트 시스템 및 렌더링 
+ */
+function processNetworkEvents() {
+    if (gameState.eventCounter < localLastEventId) {
+        localParticles = []; localImpacts = []; localShockwaves = []; localPillars = []; localLastEventId = 0;
+    }
+    if (!gameState.recentEvents) return;
+    
+    for (let ev of gameState.recentEvents) {
+        if (ev.id > localLastEventId) {
+            executeLocalEvent(ev);
+            localLastEventId = ev.id;
+        }
+    }
+}
+
+function executeLocalEvent(ev) {
+    if (ev.type === 'hit') {
+        if (ev.attackType === 'heavy') playSFX('heavy_hit');
+        else playSFX('hit');
+        
+        let coreColor = 'cyan'; let sparkColor = '#00ffff';
+        if (ev.attackType === 'heavy') { coreColor = 'orange'; sparkColor = '#ffaa00'; }
+        else if (ev.attackType === 'air_light') { coreColor = '#32ff96'; sparkColor = '#aaffaa'; }
+
+        localImpacts.push({ x: ev.x, y: ev.y, life: 12, maxLife: 12, size: ev.power * 2.5, type: ev.attackType, color: coreColor });
+        for(let i=0; i<15 + ev.power; i++) {
+            let speed = 15 + Math.random() * 20 * (ev.power/15); let angle = Math.random() * Math.PI * 2;
+            let pType = Math.random() > 0.4 ? 'line' : 'shard';
+            let color = Math.random() > 0.5 ? sparkColor : '#ffffff';
+            localParticles.push({ x: ev.x, y: ev.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 15 + Math.random() * 15, maxLife: 30, color: color, size: 3 + Math.random() * 4, type: pType });
+        }
+    } else if (ev.type === 'shatter') {
+        playSFX('shatter');
+        localShockwaves.push({ x: ev.x, y: ev.y, radius: ev.radius, life: 15, maxLife: 15, maxRadius: ev.radius + 80, type: 'glass_break' });
+        for(let i=0; i<25; i++) {
+            let speed = 5 + Math.random() * 15; let angle = Math.random() * Math.PI * 2;
+            localParticles.push({ x: ev.x, y: ev.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 20 + Math.random() * 20, maxLife: 40, color: `rgba(0, 255, 255, ${0.6 + Math.random()*0.4})`, size: 6 + Math.random() * 8, type: 'glass' });
+        }
+    } else if (ev.type === 'death') {
+        playSFX('death');
+        for(let i=0; i<80; i++) {
+            let speed = 20 + Math.random() * 35; let angle = Math.random() * Math.PI * 2;
+            localParticles.push({ x: ev.x, y: ev.y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 40 + Math.random() * 30, maxLife: 70, color: `hsl(${Math.random() * 360}, 100%, 70%)`, size: 5 + Math.random() * 5, type: 'shard' });
+        }
+        localShockwaves.push({ x: ev.x, y: ev.y, radius: 10, life: 25, maxLife: 25, maxRadius: 500, type: 'death' });
+    } else if (ev.type === 'meteor') {
+        playSFX('heavy_slam');
+        let range = 400 * ev.powerRatio; 
+        localShockwaves.push({ x: ev.x, y: ev.y, radius: 20, life: 25, maxLife: 25, maxRadius: range, type: 'meteor' });
+        localPillars.push({ x: ev.x, y: ev.y, width: 150 * ev.powerRatio, height: 600 * ev.powerRatio, life: 20, maxLife: 20 });
+    }
+}
+
+function updateLocalEffects() {
+    for (let i = localParticles.length - 1; i >= 0; i--) { let pt = localParticles[i]; pt.x += pt.vx; pt.y += pt.vy; pt.vy += 0.5; pt.vx *= 0.95; pt.vy *= 0.95; pt.life--; if(pt.life <= 0) localParticles.splice(i, 1); }
+    for (let i = localImpacts.length - 1; i >= 0; i--) { localImpacts[i].life--; if(localImpacts[i].life <= 0) localImpacts.splice(i, 1); }
+    for (let i = localShockwaves.length - 1; i >= 0; i--) { let sw = localShockwaves[i]; sw.radius += (sw.maxRadius - sw.radius) * 0.2; sw.life--; if(sw.life <= 0) localShockwaves.splice(i, 1); }
+    for (let i = localPillars.length - 1; i >= 0; i--) { localPillars[i].life--; if(localPillars[i].life <= 0) localPillars.splice(i, 1); }
+}
 
 function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -756,44 +833,11 @@ function render() {
     if (gameState.status === 'playing' && gameState.timeLeft <= 3600 && !clientClimaxTriggered) { 
         playCustomBGM('climax'); clientClimaxTriggered = true;
     }
-    
-    if (gameState.totalImpacts > localImpactCount) {
-        let diff = gameState.totalImpacts - localImpactCount;
-        for(let i=0; i < diff; i++) {
-            let imp = gameState.impacts[gameState.impacts.length - diff + i];
-            if (imp && imp.type === 'heavy') playSFX('heavy_hit');
-            else playSFX('hit'); 
-        }
-        localImpactCount = gameState.totalImpacts;
-    }
-
-    // --- [핵심 추가] 사망 및 가드 붕괴 효과음 동기화 로직 ---
-    for (let id in gameState.players) {
-        let p = gameState.players[id];
-        
-        // 처음 플레이어 상태를 기록 (참가 시 바로 소리나는 것 방지)
-        if (!clientPlayerStates[id]) {
-            clientPlayerStates[id] = { respawnTimer: p.respawnTimer, isBlockBroken: p.isBlockBroken };
-            continue;
-        }
-        
-        let cp = clientPlayerStates[id];
-        
-        // 부활 타이머가 0이었다가 갑자기 생겼을 때 = "방금 장외 탈락함" 감지
-        if (p.respawnTimer > 0 && cp.respawnTimer === 0) playSFX('death');
-        
-        // 가드가 안 깨져있다가 깨졌을 때 = "방금 가드가 붕괴됨" 감지
-        if (p.isBlockBroken && !cp.isBlockBroken) playSFX('shatter');
-        
-        cp.respawnTimer = p.respawnTimer;
-        cp.isBlockBroken = p.isBlockBroken;
-    }
-    // --------------------------------------------------------
 
     if (gameState.status === 'finished') { if (!rankingShown) showRankingScreen(); return; }
 
-    gameState.impacts.forEach(imp => { if(imp.life === imp.maxLife) screenShake += imp.size * 0.5; });
-    gameState.shockwaves.forEach(sw => { if(sw.life === sw.maxLife) screenShake += sw.maxRadius * 0.05; });
+    localImpacts.forEach(imp => { if(imp.life === imp.maxLife) screenShake += imp.size * 0.5; });
+    localShockwaves.forEach(sw => { if(sw.life === sw.maxLife) screenShake += sw.maxRadius * 0.05; });
     
     let targetCamX = 0, targetCamY = 0, targetScale = 1.0;
     let myPlayer = gameState.players[myId];
@@ -846,7 +890,7 @@ function render() {
     platforms.forEach(plat => { ctx.fillStyle = '#2f3542'; ctx.fillRect(plat.x, plat.y, plat.w, plat.h); ctx.fillStyle = '#2ed573'; ctx.fillRect(plat.x, plat.y, plat.w, 15); });
 
     if (settingEffects) {
-        gameState.pillars.forEach(pil => { let ratio = pil.life / pil.maxLife; let grd = ctx.createLinearGradient(0, pil.y - pil.height, 0, pil.y); grd.addColorStop(0, `rgba(255, 255, 255, 0)`); grd.addColorStop(1, `rgba(255, 150, 50, ${ratio * 0.8})`); ctx.fillStyle = grd; ctx.fillRect(pil.x - pil.width/2 * ratio, pil.y - pil.height, pil.width * ratio, pil.height); });
+        localPillars.forEach(pil => { let ratio = pil.life / pil.maxLife; let grd = ctx.createLinearGradient(0, pil.y - pil.height, 0, pil.y); grd.addColorStop(0, `rgba(255, 255, 255, 0)`); grd.addColorStop(1, `rgba(255, 150, 50, ${ratio * 0.8})`); ctx.fillStyle = grd; ctx.fillRect(pil.x - pil.width/2 * ratio, pil.y - pil.height, pil.width * ratio, pil.height); });
     }
 
     gameState.items.forEach(item => {
@@ -909,7 +953,7 @@ function render() {
     }
 
     if (settingEffects) {
-        gameState.particles.forEach((pt, index) => {
+        localParticles.forEach((pt, index) => {
             if (index % settingParticleRate !== 0) return; 
             ctx.beginPath(); 
             if (pt.type === 'shard') { ctx.moveTo(pt.x, pt.y); ctx.lineTo(pt.x + pt.size, pt.y - pt.size); ctx.lineTo(pt.x + pt.size*1.5, pt.y + pt.size*0.5); ctx.closePath(); ctx.fillStyle = pt.color; ctx.fill(); } 
@@ -917,9 +961,9 @@ function render() {
             else { ctx.moveTo(pt.x, pt.y); ctx.lineTo(pt.x - pt.vx * 2, pt.y - pt.vy * 2); ctx.strokeStyle = pt.color; ctx.lineWidth = pt.size * (pt.life / pt.maxLife); ctx.lineCap = 'round'; ctx.shadowBlur = 15; ctx.shadowColor = pt.color; ctx.stroke(); ctx.shadowBlur = 0; }
         });
 
-        gameState.impacts.forEach(imp => { let ratio = imp.life / imp.maxLife; ctx.save(); ctx.translate(imp.x, imp.y); ctx.rotate(Math.PI / 4 + ratio*0.5); ctx.fillStyle = `rgba(255, 255, 255, ${ratio})`; ctx.shadowBlur = 30; ctx.shadowColor = imp.color; let s = imp.size * ratio * 2.5; ctx.fillRect(-s, -s/6, s*2, s/3); ctx.fillRect(-s/6, -s, s/3, s*2); ctx.beginPath(); ctx.arc(0, 0, s*0.4, 0, Math.PI*2); ctx.fill(); ctx.restore(); });
+        localImpacts.forEach(imp => { let ratio = imp.life / imp.maxLife; ctx.save(); ctx.translate(imp.x, imp.y); ctx.rotate(Math.PI / 4 + ratio*0.5); ctx.fillStyle = `rgba(255, 255, 255, ${ratio})`; ctx.shadowBlur = 30; ctx.shadowColor = imp.color; let s = imp.size * ratio * 2.5; ctx.fillRect(-s, -s/6, s*2, s/3); ctx.fillRect(-s/6, -s, s/3, s*2); ctx.beginPath(); ctx.arc(0, 0, s*0.4, 0, Math.PI*2); ctx.fill(); ctx.restore(); });
 
-        gameState.shockwaves.forEach(sw => { let ratio = sw.life / sw.maxLife; ctx.beginPath(); if (sw.type === 'meteor') { ctx.ellipse(sw.x, sw.y, sw.radius, sw.radius/3, 0, 0, Math.PI * 2); ctx.strokeStyle = `rgba(255, 150, 0, ${ratio})`; ctx.lineWidth = 25 * ratio; } else if (sw.type === 'glass_break') { ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2); ctx.strokeStyle = `rgba(0, 255, 255, ${ratio})`; ctx.lineWidth = 15 * ratio; } else { ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2); ctx.strokeStyle = `rgba(255, 255, 100, ${ratio})`; ctx.lineWidth = 20 * ratio; } ctx.shadowBlur = 40 * ratio; ctx.shadowColor = sw.type === 'meteor' ? 'red' : 'cyan'; ctx.stroke(); ctx.shadowBlur = 0; });
+        localShockwaves.forEach(sw => { let ratio = sw.life / sw.maxLife; ctx.beginPath(); if (sw.type === 'meteor') { ctx.ellipse(sw.x, sw.y, sw.radius, sw.radius/3, 0, 0, Math.PI * 2); ctx.strokeStyle = `rgba(255, 150, 0, ${ratio})`; ctx.lineWidth = 25 * ratio; } else if (sw.type === 'glass_break') { ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2); ctx.strokeStyle = `rgba(0, 255, 255, ${ratio})`; ctx.lineWidth = 15 * ratio; } else { ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2); ctx.strokeStyle = `rgba(255, 255, 100, ${ratio})`; ctx.lineWidth = 20 * ratio; } ctx.shadowBlur = 40 * ratio; ctx.shadowColor = sw.type === 'meteor' ? 'red' : 'cyan'; ctx.stroke(); ctx.shadowBlur = 0; });
     }
     ctx.restore(); 
     
@@ -985,7 +1029,6 @@ function render() {
     }
 }
 
-
 function showRankingScreen() {
     rankingShown = true;
     const rankingDiv = document.getElementById('ranking-screen');
@@ -999,6 +1042,11 @@ function showRankingScreen() {
 
 function gameLoop() { 
     if (isHost) hostLoop(); else sendInputToHost(); 
+    
+    // 네트워크 이벤트를 클라이언트에 동기화하여 이펙트를 그립니다.
+    processNetworkEvents();
+    updateLocalEffects();
+    
     render(); 
     if (isGameLoopRunning) requestAnimationFrame(gameLoop); 
 }
