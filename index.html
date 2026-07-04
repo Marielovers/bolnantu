@@ -188,11 +188,12 @@
 let autoStartEnabled = false;
 let autoStartTimer = 0;
 let autoRestartTimer = 0;
+let clientConnectionStatus = 'idle';
 
 function toggleAutoStart() {
     autoStartEnabled = document.getElementById('setting-auto-start').checked;
     if (autoStartEnabled && gameState.status === 'lobby') {
-        autoStartTimer = 30 * 60; // 60fps 기준 30초
+        autoStartTimer = 30 * 60;
     } else {
         document.getElementById('btn-start').innerText = "게임 시작!";
     }
@@ -1212,6 +1213,31 @@ function render() {
         if (gameState.mapSelection && mapInput.value != gameState.mapSelection) mapInput.value = gameState.mapSelection;
     }
     
+    if (!isHost && clientConnectionStatus === 'connecting') {
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'white';
+        ctx.font = '30px "OneMobilePop", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText("방장과 연결 중입니다...", canvas.width/2, canvas.height/2);
+        ctx.fillStyle = '#aaa';
+        ctx.font = '20px "OneMobilePop", sans-serif';
+        ctx.fillText("모바일에서는 5~10초 정도 소요될 수 있습니다.", canvas.width/2, canvas.height/2 + 40);
+
+        let time = Date.now() / 150;
+        ctx.save();
+        ctx.translate(canvas.width/2, canvas.height/2 - 60);
+        ctx.rotate(time);
+        ctx.beginPath();
+        ctx.arc(0, 0, 20, 0, Math.PI * 1.5);
+        ctx.strokeStyle = '#00ffff';
+        ctx.lineWidth = 5;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+        ctx.restore();
+        return; 
+    }
+
     if (gameState.status === 'playing' && gameState.timeLeft <= 3600 && !clientClimaxTriggered) { 
         playCustomBGM('climax'); clientClimaxTriggered = true;
     }
@@ -1509,6 +1535,13 @@ function startGameUI() {
     document.getElementById('char-select-screen').style.display = 'none'; 
     document.getElementById('game-container').style.display = 'block'; 
     
+    const content = document.getElementById('ui-content');
+    const header = document.getElementById('ui-header');
+    const btn = document.getElementById('btn-ui-toggle');
+    content.classList.add('hidden');
+    header.classList.add('transparent');
+    btn.innerText = "⚙️ 설정 보기";
+    
     resizeCanvas();
     
     if (mySelectedChar === '관전') {
@@ -1600,13 +1633,17 @@ function joinGame() {
     document.getElementById('btn-join').disabled = true;
     document.getElementById('btn-join').innerText = "접속 중..."; 
     
+    startGameUI();
+    clientConnectionStatus = 'connecting';
+    if (!isGameLoopRunning) { isGameLoopRunning = true; requestAnimationFrame(gameLoop); }
+    
     initPeer();
     peer.on('open', id => {
         isHost = false; 
         hostConnection = peer.connect(hostId);
         
         hostConnection.on('open', () => { 
-            startGameUI(); 
+            clientConnectionStatus = 'connected';
             hostConnection.send({ type: 'join', charName: mySelectedChar }); 
         });
         
@@ -1624,11 +1661,8 @@ function joinGame() {
         hostConnection.on('error', (err) => {
             console.error("방장 연결 에러:", err);
             alert("방장과 연결할 수 없습니다. 다시 시도해주세요.");
-            resetUI();
-            document.getElementById('btn-join').innerText = "참가하기";
+            location.reload();
         });
-        
-        if (!isGameLoopRunning) { isGameLoopRunning = true; requestAnimationFrame(gameLoop); }
     });
 }
 
