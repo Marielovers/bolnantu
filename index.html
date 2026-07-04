@@ -1171,36 +1171,7 @@ function startHost() {
         document.getElementById('btn-copy-link').style.display = 'inline-block'; document.getElementById('btn-start').style.display = 'inline-block';
         gameState.status = 'lobby'; gameState.timeLeft = minutes * 60 * 60; gameState.players[myId] = new Player(myId, mySelectedChar); 
         
-        peer.on('connection', conn => { 
-            connections.push(conn); 
-            
-            conn.on('data', data => { 
-                if (data.type === 'join') {
-                    gameState.players[conn.peer] = new Player(conn.peer, data.charName); 
-                }
-                else if (data.type === 'input') {
-                    guestInputs[conn.peer] = data.keys; 
-                }
-                else if (data.type === 'change_char') {
-                    if (gameState.players[conn.peer] && gameState.status === 'lobby') {
-                        updatePlayerCharacter(gameState.players[conn.peer], data.charName);
-                        broadcastState();
-                    }
-                }
-            }); 
-            
-            conn.on('close', () => { 
-                delete gameState.players[conn.peer]; 
-                delete guestInputs[conn.peer];
-                connections = connections.filter(c => c.peer !== conn.peer);
-            });
-            
-            conn.on('error', () => {
-                delete gameState.players[conn.peer];
-                delete guestInputs[conn.peer];
-                connections = connections.filter(c => c.peer !== conn.peer);
-            });
-        });
+        peer.on('connection', conn => { connections.push(conn); conn.on('data', data => { if (data.type === 'join') gameState.players[conn.peer] = new Player(conn.peer, data.charName); else if (data.type === 'input') guestInputs[conn.peer] = data.keys; }); conn.on('close', () => { delete gameState.players[conn.peer]; }); });
         
         if (!isGameLoopRunning) {
             isGameLoopRunning = true;
