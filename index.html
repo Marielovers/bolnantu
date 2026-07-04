@@ -88,7 +88,8 @@
 
 <div id="ui-content">
     <div>
-        <label>시간: <input type="number" id="time-limit" value="3" min="1" max="10"></label>
+        <label>시간: <input type="number" id="time-limit" value="3" min="1" max="10" onchange="updateLobbySettings()"></label>
+        <label style="margin-left: 5px;">최대 인원: <input type="number" id="setting-max-players" value="4" min="2" max="10" onchange="updateLobbySettings()"></label>
         <label style="margin-left: 5px;">이펙트: 
             <select id="setting-effect" onchange="updateSettings()">
                 <option value="on">켜기</option>
@@ -352,6 +353,23 @@ function updateSettings() {
     if (masterGain) masterGain.gain.value = zzfxV; 
 }
 
+// 대기실에서 설정 변경 시 실시간 반영 및 동기화
+function updateLobbySettings() {
+    if (!isHost || gameState.status !== 'lobby') return;
+    
+    let minutes = parseInt(document.getElementById('time-limit').value);
+    if (isNaN(minutes) || minutes < 1) minutes = 3;
+    
+    let maxPlayers = parseInt(document.getElementById('setting-max-players').value);
+    if (isNaN(maxPlayers) || maxPlayers < 2) maxPlayers = 4;
+    
+    gameState.timeLimit = minutes;
+    gameState.maxPlayers = maxPlayers;
+    gameState.timeLeft = minutes * 60 * 60; // 변경된 시간을 타이머에 즉시 반영
+    
+    broadcastState();
+}
+
 function resizeCanvas() {
     const container = document.getElementById('game-container');
     const canvas = document.getElementById('gameCanvas');
@@ -427,17 +445,28 @@ function changeCharacterFromSettings() {
         return;
     }
 
-    mySelectedChar = newChar;
-
-    if (!peer || !peer.open) return;
-
     if (isHost) {
+        // 동기화된 gameState 기반으로 최대 인원 체크
+        let currentMax = gameState.maxPlayers || parseInt(document.getElementById('setting-max-players').value);
+        let currentPlayers = Object.values(gameState.players).filter(p => !p.isSpectator).length;
+        let isCurrentlySpectator = gameState.players[myId] && gameState.players[myId].isSpectator;
+
+        if (newChar !== '관전' && isCurrentlySpectator && currentPlayers >= currentMax) {
+            alert('최대 인원 초과로 플레이어 캐릭터로 변경할 수 없습니다.');
+            selectElem.value = mySelectedChar;
+            return;
+        }
+        
+        mySelectedChar = newChar;
         if (gameState.players[myId]) {
             updatePlayerCharacter(gameState.players[myId], newChar);
             broadcastState();
         }
     } else if (hostConnection && hostConnection.open) {
+        mySelectedChar = newChar;
         hostConnection.send({ type: 'change_char', charName: newChar });
+    } else {
+        mySelectedChar = newChar;
     }
 }
 
@@ -516,6 +545,10 @@ const platforms = [{ x: 300, y: 1000, w: 1000, h: 200 }, { x: 100, y: 700, w: 30
 let gameState = { status: 'lobby', timeLeft: 0, countdownTimer: 0, gameOverTimer: 0, players: {}, items: [], eventCounter: 0, recentEvents: [] };
 let myId = null; let isHost = false; let peer = null; let connections = []; let hostConnection = null; let rankingShown = false;
 let screenShake = 0; let clientLastStatus = null; let clientClimaxTriggered = false;
+
+let guestInputs = {}; 
+let clientHeartbeats = {}; // 접속 유저들의 마지막 통신 시간을 기록
+function getGuestKeys(id) { return guestInputs[id] || {}; }
 
 let localParticles = [];
 let localImpacts = [];
@@ -599,13 +632,12 @@ function processMeteorPhysics(attacker, powerRatio) {
 /**
  * 5. 방장(Host) 게임 루프 처리
  */
-let guestInputs = {}; function getGuestKeys(id) { return guestInputs[id] || {}; }
-
 function triggerStartGame() {
     unlockAudio();
     if (isHost && gameState.status === 'lobby') {
         document.getElementById('btn-start').style.display = 'none';
         document.getElementById('time-limit').disabled = true;
+        document.getElementById('setting-max-players').disabled = true; // 인원 설정 잠금
         
         gameState.status = 'countdown';
         gameState.countdownTimer = 240; 
@@ -630,10 +662,12 @@ function triggerStartGame() {
 
 function handleRestart() {
     if (isHost) {
-        let minutes = parseInt(document.getElementById('time-limit').value);
-        if (isNaN(minutes) || minutes < 1) minutes = 3;
+        let minutes = parseInt(document.getElementById('time-limit').value); if (isNaN(minutes) || minutes < 1) minutes = 3;
+        let maxPlayers = parseInt(document.getElementById('setting-max-players').value); if (isNaN(maxPlayers) || maxPlayers < 2) maxPlayers = 4;
         
         gameState.status = 'lobby';
+        gameState.timeLimit = minutes;
+        gameState.maxPlayers = maxPlayers;
         gameState.timeLeft = minutes * 60 * 60;
         
         for (let id in gameState.players) {
@@ -659,6 +693,22 @@ function handleRestart() {
 
 function hostLoop() {
     if (!isHost || gameState.status === 'finished') return;
+
+    // --- 비정상 종료(타임아웃) 체크 ---
+    let now = Date.now();
+    for (let id in clientHeartbeats) {
+        // 5초(5000ms) 이상 입력(하트비트)이 없으면 접속 종료로 간주
+        if (now - clientHeartbeats[id] > 5000) {
+            delete gameState.players[id];
+            delete guestInputs[id];
+            delete clientHeartbeats[id];
+            let conn = connections.find(c => c.peer === id);
+            if (conn) conn.close();
+            connections = connections.filter(c => c.peer !== id);
+            console.log(`[종료] 유저 ${id}의 연결이 끊어졌습니다.`);
+        }
+    }
+    // ---------------------------------
 
     if (gameState.status === 'gameover_anim') {
         gameState.gameOverTimer--;
@@ -925,11 +975,21 @@ function render() {
             if (isHost) {
                 document.getElementById('btn-start').style.display = 'inline-block';
                 document.getElementById('time-limit').disabled = false;
+                document.getElementById('setting-max-players').disabled = false; // 방장은 대기실에서 수정 가능
+            } else {
+                document.getElementById('time-limit').disabled = true;
+                document.getElementById('setting-max-players').disabled = true; // 게스트는 수정 불가 잠금
             }
         }
         else if (gameState.status === 'countdown') playCustomBGM('playing'); 
         else if (gameState.status === 'gameover_anim') { playCustomBGM('stop'); playSFX('fanfare'); }
         clientLastStatus = gameState.status;
+    }
+    
+    // 클라이언트(게스트)라면 방장이 수정한 대기실 설정을 UI에 실시간 매칭
+    if (!isHost) {
+        if (gameState.timeLimit) document.getElementById('time-limit').value = gameState.timeLimit;
+        if (gameState.maxPlayers) document.getElementById('setting-max-players').value = gameState.maxPlayers;
     }
     
     if (gameState.status === 'playing' && gameState.timeLeft <= 3600 && !clientClimaxTriggered) { 
@@ -1161,6 +1221,7 @@ function initPeer() { peer = new Peer(); peer.on('open', id => { myId = id; }); 
 function startHost() {
     unlockAudio(); 
     let minutes = parseInt(document.getElementById('time-limit').value); if (isNaN(minutes) || minutes < 1) minutes = 3;
+    let maxPlayers = parseInt(document.getElementById('setting-max-players').value); if (isNaN(maxPlayers) || maxPlayers < 2) maxPlayers = 4;
     
     document.getElementById('btn-host').disabled = true;
     document.getElementById('btn-join').disabled = true;
@@ -1169,9 +1230,57 @@ function startHost() {
     peer.on('open', id => {
         document.getElementById('host-id').innerText = id; isHost = true; startGameUI(); 
         document.getElementById('btn-copy-link').style.display = 'inline-block'; document.getElementById('btn-start').style.display = 'inline-block';
-        gameState.status = 'lobby'; gameState.timeLeft = minutes * 60 * 60; gameState.players[myId] = new Player(myId, mySelectedChar); 
         
-        peer.on('connection', conn => { connections.push(conn); conn.on('data', data => { if (data.type === 'join') gameState.players[conn.peer] = new Player(conn.peer, data.charName); else if (data.type === 'input') guestInputs[conn.peer] = data.keys; }); conn.on('close', () => { delete gameState.players[conn.peer]; }); });
+        gameState.status = 'lobby'; 
+        gameState.timeLimit = minutes;
+        gameState.maxPlayers = maxPlayers;
+        gameState.timeLeft = minutes * 60 * 60; 
+        gameState.players[myId] = new Player(myId, mySelectedChar); 
+        
+        peer.on('connection', conn => { 
+            connections.push(conn); 
+            clientHeartbeats[conn.peer] = Date.now(); 
+
+            conn.on('data', data => { 
+                clientHeartbeats[conn.peer] = Date.now(); 
+
+                if (data.type === 'join') { 
+                    let currentMax = gameState.maxPlayers || parseInt(document.getElementById('setting-max-players').value);
+                    let currentPlayers = Object.values(gameState.players).filter(p => !p.isSpectator).length;
+
+                    if (data.charName !== '관전' && currentPlayers >= currentMax) {
+                        conn.send({ type: 'error', message: '방 인원이 가득 찼습니다.' });
+                        conn.close();
+                        return;
+                    }
+                    gameState.players[conn.peer] = new Player(conn.peer, data.charName); 
+                } 
+                else if (data.type === 'change_char') { 
+                    if (data.charName !== '관전') {
+                        let currentMax = gameState.maxPlayers || parseInt(document.getElementById('setting-max-players').value);
+                        let currentPlayers = Object.values(gameState.players).filter(p => !p.isSpectator).length;
+                        let p = gameState.players[conn.peer];
+                        if (p && p.isSpectator && currentPlayers >= currentMax) {
+                            conn.send({ type: 'alert', message: '최대 인원 초과로 플레이어 캐릭터로 변경할 수 없습니다.' });
+                            return;
+                        }
+                    }
+                    if (gameState.players[conn.peer]) {
+                        updatePlayerCharacter(gameState.players[conn.peer], data.charName);
+                    }
+                }
+                else if (data.type === 'input') { 
+                    guestInputs[conn.peer] = data.keys; 
+                } 
+            }); 
+            
+            conn.on('close', () => { 
+                delete gameState.players[conn.peer]; 
+                delete clientHeartbeats[conn.peer];
+                delete guestInputs[conn.peer];
+                connections = connections.filter(c => c.peer !== conn.peer);
+            }); 
+        });
         
         if (!isGameLoopRunning) {
             isGameLoopRunning = true;
@@ -1191,7 +1300,21 @@ function joinGame() {
     peer.on('open', id => {
         isHost = false; hostConnection = peer.connect(hostId);
         hostConnection.on('open', () => { startGameUI(); hostConnection.send({ type: 'join', charName: mySelectedChar }); });
-        hostConnection.on('data', data => { if (data.type === 'state') gameState = data.state; });
+        
+        hostConnection.on('data', data => { 
+            if (data.type === 'state') {
+                gameState = data.state; 
+            } else if (data.type === 'error') {
+                // 접속 거절 시
+                alert(data.message);
+                location.reload(); 
+            } else if (data.type === 'alert') {
+                // 변경 거절 시
+                alert(data.message);
+                mySelectedChar = '관전';
+                document.getElementById('setting-char').value = '관전';
+            }
+        });
         
         if (!isGameLoopRunning) {
             isGameLoopRunning = true;
