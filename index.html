@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>미니미 볼난투</title>
-    <link rel="icon" href="icon.ico" type="image/x-icon">
+    <link rel="icon" href="icon.png" type="image/png">
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <script src="character_list.js"></script>
     <style>
@@ -117,6 +117,9 @@
         <label>캐릭터 교체: <select id="setting-char" onchange="changeCharacterFromSettings()"></select></label>
     </div>
     <div class="setting-group">
+        <button id="btn-show-controls" onclick="showControls()">🕹️ 조작법 보기</button>
+    </div>
+    <div class="setting-group">
         <label>BGM <input type="range" id="vol-bgm" min="0" max="100" value="30" oninput="updateSettings()"></label>
         <label>효과음 <input type="range" id="vol-sfx" min="0" max="100" value="30" oninput="updateSettings()"></label>
     </div>
@@ -191,6 +194,21 @@
                 </div>
             </div>
         </div>
+    </div>
+</div>
+
+<div id="controls-popup" class="noselect" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center; flex-direction: column;">
+    <div style="background: #222; padding: 20px; border-radius: 10px; border: 2px solid #555; max-width: 400px; width: 80%; text-align: left; position: relative; box-shadow: 0 0 15px rgba(0,0,0,0.8);">
+        <h2 style="margin-top: 0; color: #ffcc00; text-align: center;">🕹️ 기본 조작법</h2>
+        <ul style="line-height: 2.0; color: white; padding-left: 20px; font-size: 16px;">
+            <li><b>방향키 (←, →)</b> : 좌우 이동</li>
+            <li><b>방향키 (↑)</b> : 점프 (최대 2단 점프)</li>
+            <li><b>방향키 (↓)</b> : 방어 (가드)</li>
+            <li><b>Z 키</b> : 약공격</li>
+            <li><b>X 키</b> : 강공격</li>
+            <li><b>C 키</b> : 궁극기 (아이템 획득 시) / 감정표현 (꾹 누르기)</li>
+        </ul>
+        <button onclick="hideControls()" style="display: block; margin: 20px auto 0; background: #ff4757; font-size: 16px; border-color: #ff6b81; width: 100%; font-weight: bold;">닫기</button>
     </div>
 </div>
 
@@ -1315,6 +1333,9 @@ function broadcastState() {
 }
 
 function sendInputToHost() { if (hostConnection && hostConnection.open) hostConnection.send({ type: 'input', keys: keys }); }
+
+function showControls() { document.getElementById('controls-popup').style.display = 'flex'; }
+function hideControls() { document.getElementById('controls-popup').style.display = 'none'; }
 </script>
 </body>
 </html>
